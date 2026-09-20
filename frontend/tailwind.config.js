@@ -23,8 +23,33 @@ export default {
       },
       boxShadow: {
         'gold-glow': '0 0 25px -5px rgba(229, 169, 60, 0.25)',
-        'gold-glow-lg': '0 0 35px -5px rgba(229, 169, 60, 0.35)',
+        'gold-glow-lg': '0 0 35px -5px rgba(229, 169, 60, 0.45)',
         'card-glow': '0 10px 30px -10px rgba(0, 0, 0, 0.7)',
+        'input-glow': '0 0 15px rgba(229, 169, 60, 0.2)',
+      },
+      animation: {
+        'fade-in': 'fadeIn 0.3s ease-out forwards',
+        'fade-in-up': 'fadeInUp 0.4s ease-out forwards',
+        'pulse-glow': 'pulseGlow 2.5s infinite ease-in-out',
+        'float': 'float 4s ease-in-out infinite',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        fadeInUp: {
+          '0%': { opacity: '0', transform: 'translateY(12px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        pulseGlow: {
+          '0%, 100%': { opacity: '0.6', transform: 'scale(1)' },
+          '50%': { opacity: '1', transform: 'scale(1.05)' },
+        },
+        float: {
+          '0%, 100%': { transform: 'translateY(0px)' },
+          '50%': { transform: 'translateY(-6px)' },
+        }
       }
     },
   },

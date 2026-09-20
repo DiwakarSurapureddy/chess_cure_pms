@@ -9,9 +9,54 @@
     font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     overflow-x: hidden;
   }
+
+  /* Custom dark scrollbar */
+  ::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #080c14;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #e5a93c;
+  }
 }
 
-/* Custom subtle chessboard pattern for bottom right background */
+/* Glassmorphism helpers */
+.glass-panel {
+  background: rgba(13, 22, 38, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(34, 51, 82, 0.7);
+}
+
+.glass-card {
+  background: rgba(15, 25, 45, 0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(229, 169, 60, 0.18);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 30px rgba(229, 169, 60, 0.05);
+}
+
+.glass-input {
+  background: rgba(8, 14, 26, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(34, 51, 82, 0.8);
+  transition: all 0.2s ease-in-out;
+}
+
+.glass-input:focus {
+  border-color: #e5a93c;
+  box-shadow: 0 0 15px rgba(229, 169, 60, 0.25);
+  outline: none;
+}
+
+/* Custom subtle chessboard pattern */
 .chess-board-pattern {
   background-image: 
     linear-gradient(45deg, rgba(255, 255, 255, 0.03) 25%, transparent 25%),
@@ -22,7 +67,55 @@
   background-position: 0 0, 0 20px, 20px -20px, -20px 0px;
 }
 
+/* Subtle mask for radial fade */
+.mask-radial {
+  mask-image: radial-gradient(circle at center, black 40%, transparent 85%);
+  -webkit-mask-image: radial-gradient(circle at center, black 40%, transparent 85%);
+}
+
+/* Luxury chessboard styling */
+.chess-square-light {
+  background-color: #d1b894;
+  color: #2b1f13;
+}
+.chess-square-dark {
+  background-color: #4b3621;
+  color: #d1b894;
+}
+.chess-square-light.highlighted {
+  background-color: #f7d566 !important;
+}
+.chess-square-dark.highlighted {
+  background-color: #ba8c22 !important;
+}
+.chess-square-success {
+  background-color: #10b981 !important;
+}
+
+@keyframes pulseBorder {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(229, 169, 60, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(229, 169, 60, 0.8);
+  }
+}
+
+.glow-border-pulse {
+  animation: pulseBorder 2s infinite ease-in-out;
+}
+
+@keyframes celebrateBounce {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.celebrate-bounce {
+  animation: celebrateBounce 0.6s ease-in-out;
+}
+
 /* Smooth transition defaults */
 * {
   box-sizing: border-box;
 }
+
