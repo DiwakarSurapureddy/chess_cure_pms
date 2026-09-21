@@ -1,5 +1,21 @@
-import React, { useState } from 'react';
-import { Home, Info, BarChart2, LogIn, UserPlus, Menu, X, ChevronRight, User } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { 
+  Home, 
+  Info, 
+  BarChart2, 
+  LogIn, 
+  UserPlus, 
+  Menu, 
+  X, 
+  ChevronRight, 
+  ChevronDown, 
+  User, 
+  Settings, 
+  LogOut, 
+  Shield, 
+  Sparkles,
+  Phone
+} from 'lucide-react';
 
 export default function Navbar({ 
   activeTab = 'home', 
@@ -10,9 +26,36 @@ export default function Navbar({
   onLogout 
 }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Close profile dropdown when clicking outside or pressing Escape
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setProfileDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setProfileDropdownOpen(false);
+      }
+    };
+
+    if (profileDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [profileDropdownOpen]);
 
   const handleNav = (tab) => {
     setMobileMenuOpen(false);
+    setProfileDropdownOpen(false);
     if (tab === 'about') {
       if (onOpenAbout) onOpenAbout();
       return;
@@ -20,24 +63,27 @@ export default function Navbar({
     if (onTabChange) onTabChange(tab);
   };
 
+  const displayName = userProfile?.username || userProfile?.name || 'Grandmaster';
+  const initial = displayName ? displayName[0].toUpperCase() : 'G';
+  const displayEmail = userProfile?.email || 'player@chesscure.com';
+  const displayPhone = userProfile?.mobileNumber || userProfile?.phone || null;
+  const displayRating = userProfile?.rating || 1540;
+
   return (
-    <header className="sticky top-0 z-40 w-full backdrop-blur-xl bg-[#080c14]/80 border-b border-slate-800/80 transition-all duration-300">
+    <header className="sticky top-0 z-40 w-full backdrop-blur-xl bg-[#080c14]/85 border-b border-slate-800/80 transition-all duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
         
-        {/* Brand Logo */}
+        {/* Brand Logo with Cropped Upper King/Keyhole Emblem */}
         <div 
           onClick={() => handleNav('home')}
           className="flex items-center gap-3 cursor-pointer group select-none"
         >
-          <div className="relative flex items-center justify-center w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-600/5 border border-amber-500/30 shadow-[0_0_15px_rgba(229,169,60,0.2)] group-hover:shadow-[0_0_22px_rgba(229,169,60,0.35)] group-hover:border-amber-400/50 transition-all duration-300">
-            {/* Glowing Knight Icon SVG */}
-            <svg
-              className="w-7 h-7 text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.6)] transition-transform duration-300 group-hover:scale-110"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-            >
-              <path d="M19 22H5a1 1 0 0 1-1-1v-1a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1zM7 16l-.8-2.4A4.002 4.002 0 0 1 7.2 9H9V7.5a2.5 2.5 0 0 1 4.2-1.83 5.48 5.48 0 0 0 1.94 1.15A3.003 3.003 0 0 1 17 9.64V12a4 4 0 0 1-4 4H7zm3.5-6a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
-            </svg>
+          <div className="relative flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-600/5 border border-amber-500/35 p-1 shadow-[0_0_15px_rgba(229,169,60,0.25)] group-hover:shadow-[0_0_24px_rgba(229,169,60,0.45)] group-hover:border-amber-400/60 transition-all duration-300">
+            <img
+              src="/chess_cure_emblem.png"
+              alt="Chess Cure Emblem"
+              className="w-full h-full object-contain filter drop-shadow-[0_0_6px_rgba(229,169,60,0.5)] transition-transform duration-300 group-hover:scale-110"
+            />
           </div>
           <div className="flex flex-col">
             <div className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-1.5">
@@ -57,7 +103,7 @@ export default function Navbar({
         <nav className="hidden md:flex items-center gap-8">
           <button
             onClick={() => handleNav('home')}
-            className={`flex items-center gap-2 text-sm font-semibold transition-all relative py-2 ${
+            className={`flex items-center gap-2 text-sm font-semibold transition-all relative py-2 cursor-pointer ${
               activeTab === 'home' ? 'text-amber-400' : 'text-slate-300 hover:text-white'
             }`}
           >
@@ -70,7 +116,7 @@ export default function Navbar({
 
           <button
             onClick={() => handleNav('about')}
-            className="flex items-center gap-2 text-sm font-semibold transition-all relative py-2 text-slate-300 hover:text-white"
+            className="flex items-center gap-2 text-sm font-semibold transition-all relative py-2 text-slate-300 hover:text-white cursor-pointer"
           >
             <Info className="w-4 h-4" />
             <span>About</span>
@@ -78,7 +124,7 @@ export default function Navbar({
 
           <button
             onClick={() => handleNav('stats')}
-            className={`flex items-center gap-2 text-sm font-semibold transition-all relative py-2 ${
+            className={`flex items-center gap-2 text-sm font-semibold transition-all relative py-2 cursor-pointer ${
               activeTab === 'stats' ? 'text-amber-400' : 'text-slate-300 hover:text-white'
             }`}
           >
@@ -90,32 +136,127 @@ export default function Navbar({
           </button>
         </nav>
 
-        {/* Desktop Auth Action Buttons */}
+        {/* Desktop Auth Action Area / Modern Profile Dropdown */}
         <div className="hidden md:flex items-center gap-3">
           {isAuthenticated ? (
-            <div className="flex items-center gap-3">
+            <div className="relative" ref={dropdownRef}>
+              {/* Profile Pill Trigger Button */}
               <button 
-                onClick={() => handleNav('stats')}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-[#101928] border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold"
+                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+                className={`flex items-center gap-2.5 px-3 py-1.5 rounded-full border transition-all duration-200 cursor-pointer ${
+                  profileDropdownOpen 
+                    ? 'bg-[#152238] border-amber-400/80 shadow-[0_0_15px_rgba(229,169,60,0.25)] text-white' 
+                    : 'bg-[#0f172a]/90 hover:bg-[#142036] border-slate-700/80 hover:border-slate-600 text-slate-200 hover:text-white'
+                }`}
+                aria-expanded={profileDropdownOpen}
+                aria-haspopup="true"
               >
-                <div className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
-                  {userProfile?.name ? userProfile.name[0].toUpperCase() : 'GM'}
+                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-amber-500/30 to-amber-400/20 border border-amber-500/40 text-amber-300 flex items-center justify-center font-bold text-xs shadow-inner">
+                  {initial}
                 </div>
-                <span>{userProfile?.name || 'Grandmaster'}</span>
+                <div className="flex flex-col text-left">
+                  <span className="text-xs font-bold text-slate-100 max-w-[130px] truncate leading-tight">
+                    {displayName}
+                  </span>
+                  <span className="text-[10px] text-amber-400/90 font-medium leading-tight">
+                    {displayRating} ELO
+                  </span>
+                </div>
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${profileDropdownOpen ? 'rotate-180 text-amber-400' : ''}`} />
               </button>
-              <button
-                onClick={onLogout}
-                className="text-xs text-rose-400 hover:text-rose-300 font-medium px-2 py-1"
-              >
-                Log Out
-              </button>
+
+              {/* Modern Browser-Style Floating Profile Dropdown Menu */}
+              {profileDropdownOpen && (
+                <div className="absolute right-0 mt-2.5 w-72 rounded-2xl profile-dropdown-menu p-2 z-50 animate-fade-in-up border border-amber-500/30 shadow-2xl">
+                  
+                  {/* Dropdown Header: User Info Card */}
+                  <div className="p-3 rounded-xl bg-gradient-to-b from-[#131d33] to-[#0d1627] border border-slate-700/60 mb-1 space-y-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-amber-500 to-amber-300 text-black flex items-center justify-center font-black text-sm shadow-[0_0_12px_rgba(229,169,60,0.4)]">
+                        {initial}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-white truncate">{displayName}</p>
+                        <p className="text-xs text-slate-400 truncate">{displayEmail}</p>
+                      </div>
+                    </div>
+
+                    {/* Additional User Details (Phone & Rating) */}
+                    <div className="pt-2 border-t border-slate-700/50 flex items-center justify-between text-[11px]">
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-semibold">
+                        Rating: {displayRating}
+                      </span>
+                      {displayPhone && (
+                        <span className="text-slate-400 truncate max-w-[120px] flex items-center gap-1">
+                          <Phone className="w-2.5 h-2.5 text-slate-500" />
+                          <span>{displayPhone}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Dropdown Navigation Links */}
+                  <div className="py-1 space-y-0.5">
+                    <button
+                      onClick={() => handleNav('profile')}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                        activeTab === 'profile'
+                          ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                          : 'text-slate-200 hover:bg-slate-800/80 hover:text-white'
+                      }`}
+                    >
+                      <User className="w-4 h-4 text-amber-400" />
+                      <span>My Profile</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleNav('stats')}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                        activeTab === 'stats'
+                          ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                          : 'text-slate-200 hover:bg-slate-800/80 hover:text-white'
+                      }`}
+                    >
+                      <BarChart2 className="w-4 h-4 text-amber-400" />
+                      <span>Tactics & Statistics</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleNav('settings')}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                        activeTab === 'settings'
+                          ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                          : 'text-slate-200 hover:bg-slate-800/80 hover:text-white'
+                      }`}
+                    >
+                      <Settings className="w-4 h-4 text-amber-400" />
+                      <span>Settings & Preferences</span>
+                    </button>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="my-1 border-t border-slate-800" />
+
+                  {/* Logout Action (replaces the standalone red button) */}
+                  <button
+                    onClick={() => {
+                      setProfileDropdownOpen(false);
+                      if (onLogout) onLogout();
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold text-rose-300 hover:text-rose-200 hover:bg-rose-500/15 transition-all cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4 text-rose-400" />
+                    <span>Log Out</span>
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <>
               {/* Login Button */}
               <button
                 onClick={() => handleNav('login')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 cursor-pointer ${
                   activeTab === 'login'
                     ? 'bg-slate-800 text-amber-400 border border-amber-500/40 shadow-[0_0_15px_rgba(229,169,60,0.15)]'
                     : 'text-slate-200 hover:text-white bg-slate-900/60 border border-slate-700/80 hover:border-slate-600 hover:bg-slate-850'
@@ -128,7 +269,7 @@ export default function Navbar({
               {/* Register Button */}
               <button
                 onClick={() => handleNav('signup')}
-                className="relative group overflow-hidden flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-[#e5a93c] to-[#f5b94e] text-black text-sm font-bold shadow-[0_0_20px_rgba(229,169,60,0.35)] hover:shadow-[0_0_28px_rgba(229,169,60,0.5)] transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]"
+                className="relative group overflow-hidden flex items-center gap-2 px-5 py-2 rounded-xl bg-gradient-to-r from-[#e5a93c] to-[#f5b94e] text-black text-sm font-bold shadow-[0_0_20px_rgba(229,169,60,0.35)] hover:shadow-[0_0_28px_rgba(229,169,60,0.5)] transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
               >
                 <UserPlus className="w-4 h-4 stroke-[2.5]" />
                 <span>Register</span>
@@ -140,17 +281,27 @@ export default function Navbar({
 
         {/* Mobile Hamburger Menu Toggle Button */}
         <div className="flex md:hidden items-center gap-2">
-          {!isAuthenticated && (
+          {!isAuthenticated ? (
             <button
               onClick={() => handleNav('login')}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 border border-slate-700 text-amber-400 mr-1"
             >
               Login
             </button>
+          ) : (
+            <button
+              onClick={() => handleNav('profile')}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-700 text-xs font-semibold text-white"
+            >
+              <div className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-[10px]">
+                {initial}
+              </div>
+              <span className="max-w-[70px] truncate">{displayName}</span>
+            </button>
           )}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-slate-300 hover:text-white focus:outline-none"
+            className="p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-slate-300 hover:text-white focus:outline-none cursor-pointer"
             aria-label="Toggle Navigation Menu"
           >
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -164,7 +315,7 @@ export default function Navbar({
           <div className="flex flex-col space-y-2">
             <button
               onClick={() => handleNav('home')}
-              className={`flex items-center justify-between p-3 rounded-xl text-sm font-semibold transition-colors ${
+              className={`flex items-center justify-between p-3 rounded-xl text-sm font-semibold transition-colors cursor-pointer ${
                 activeTab === 'home'
                   ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
                   : 'text-slate-300 hover:bg-slate-900'
@@ -179,7 +330,7 @@ export default function Navbar({
 
             <button
               onClick={() => handleNav('about')}
-              className="flex items-center justify-between p-3 rounded-xl text-sm font-semibold text-slate-300 hover:bg-slate-900 transition-colors"
+              className="flex items-center justify-between p-3 rounded-xl text-sm font-semibold text-slate-300 hover:bg-slate-900 transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-3">
                 <Info className="w-4 h-4" />
@@ -190,7 +341,7 @@ export default function Navbar({
 
             <button
               onClick={() => handleNav('stats')}
-              className={`flex items-center justify-between p-3 rounded-xl text-sm font-semibold transition-colors ${
+              className={`flex items-center justify-between p-3 rounded-xl text-sm font-semibold transition-colors cursor-pointer ${
                 activeTab === 'stats'
                   ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
                   : 'text-slate-300 hover:bg-slate-900'
@@ -202,6 +353,23 @@ export default function Navbar({
               </div>
               <ChevronRight className="w-4 h-4 text-slate-500" />
             </button>
+
+            {isAuthenticated && (
+              <button
+                onClick={() => handleNav('profile')}
+                className={`flex items-center justify-between p-3 rounded-xl text-sm font-semibold transition-colors cursor-pointer ${
+                  activeTab === 'profile'
+                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                    : 'text-slate-300 hover:bg-slate-900'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <User className="w-4 h-4 text-amber-400" />
+                  <span>My Profile</span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-500" />
+              </button>
+            )}
           </div>
 
           {/* Mobile Auth Buttons */}
@@ -209,29 +377,37 @@ export default function Navbar({
             {isAuthenticated ? (
               <div className="space-y-2">
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800 text-sm">
-                  <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
-                    {userProfile?.name ? userProfile.name[0].toUpperCase() : 'GM'}
+                  <div className="w-10 h-10 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-base">
+                    {initial}
                   </div>
-                  <div>
-                    <p className="font-semibold text-white">{userProfile?.name || 'Grandmaster'}</p>
-                    <p className="text-xs text-slate-400">{userProfile?.email || 'player@chesscure.com'}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-white truncate">{displayName}</p>
+                    <p className="text-xs text-slate-400 truncate">{displayEmail}</p>
+                    {displayPhone && (
+                      <p className="text-[11px] text-slate-500 truncate">{displayPhone}</p>
+                    )}
                   </div>
+                  <span className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+                    {displayRating}
+                  </span>
                 </div>
+                
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);
                     if (onLogout) onLogout();
                   }}
-                  className="w-full py-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 text-xs font-bold"
+                  className="w-full py-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
-                  Log Out
+                  <LogOut className="w-4 h-4" />
+                  <span>Log Out</span>
                 </button>
               </div>
             ) : (
               <>
                 <button
                   onClick={() => handleNav('login')}
-                  className="w-full py-3 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-slate-800"
+                  className="w-full py-3 rounded-xl bg-slate-900 border border-slate-700/80 text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-slate-800 cursor-pointer"
                 >
                   <LogIn className="w-4 h-4 text-amber-400" />
                   <span>Login to Your Account</span>
@@ -239,7 +415,7 @@ export default function Navbar({
 
                 <button
                   onClick={() => handleNav('signup')}
-                  className="w-full py-3 rounded-xl bg-[#e5a93c] text-black text-sm font-bold flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(229,169,60,0.3)] hover:bg-[#f5b94e]"
+                  className="w-full py-3 rounded-xl bg-[#e5a93c] text-black text-sm font-bold flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(229,169,60,0.3)] hover:bg-[#f5b94e] cursor-pointer"
                 >
                   <UserPlus className="w-4 h-4 stroke-[2.5]" />
                   <span>Register Free Account</span>

@@ -1,19 +1,47 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Navbar from './components/layout/Navbar';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import Profile from './pages/Profile';
+import Dashboard from './pages/Dashboard';
+import ChessChallenge from './pages/ChessChallenge';
+import PlayVsComputer from './pages/PlayVsComputer';
+import PlayWithFriends from './pages/PlayWithFriends';
+import Chat from './pages/Chat';
 import AboutModal from './components/common/AboutModal';
+import { useAuth } from './hooks/useAuth';
 import { X, Trophy, Swords, Brain, Sparkles, Play, Shield, Activity, RefreshCw } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'login' | 'signup' | 'stats' | 'settings'
+  const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'login' | 'signup' | 'profile' | 'stats' | 'settings' | 'challenge' | 'dashboard' | 'vs-computer' | 'with-friends' | 'chat'
   const [aboutModalOpen, setAboutModalOpen] = useState(false);
   const [modalState, setModalState] = useState(null); // 'computer' | 'online' | 'puzzle' | 'challenge' | null
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userProfile, setUserProfile] = useState(null);
+  const [userPoints, setUserPoints] = useState(150);
+  const [chatUnlocked, setChatUnlocked] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
+
+  // Route protection: If unauthenticated user tries to stay on dashboard or profile
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated && (activeTab === 'dashboard' || activeTab === 'profile')) {
+      setActiveTab('login');
+    }
+  }, [isLoading, isAuthenticated, activeTab]);
 
   const handleSelectMode = (modeId) => {
+    if (modeId === 'computer') {
+      handleNavigate('vs-computer');
+      return;
+    }
+    if (modeId === 'online') {
+      handleNavigate('with-friends');
+      return;
+    }
+    if (modeId === 'puzzle' || modeId === 'challenge') {
+      handleNavigate('challenge');
+      return;
+    }
     setModalState(modeId);
   };
 
@@ -22,27 +50,60 @@ export default function App() {
       setAboutModalOpen(true);
       return;
     }
+    // Protect dashboard and profile routes from unauthenticated users
+    if ((tab === 'dashboard' || tab === 'profile') && !isAuthenticated) {
+      setActiveTab('login');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     setActiveTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleLoginSuccess = (profile) => {
-    setIsAuthenticated(true);
-    setUserProfile(profile);
-    setActiveTab('home');
+  const handleAwardPoints = (pts) => {
+    setUserPoints((prev) => prev + pts);
   };
 
+  const handleUnlockChat = () => {
+    setChatUnlocked(true);
+  };
+
+  // Flow: Register -> Login
   const handleRegisterSuccess = (profile) => {
-    setIsAuthenticated(true);
-    setUserProfile(profile);
-    setActiveTab('home');
+    if (profile?.email) {
+      setRegisteredEmail(profile.email);
+    }
+    setActiveTab('login');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setUserProfile(null);
-    setActiveTab('home');
+  // Flow: Login -> Dashboard
+  const handleLoginSuccess = () => {
+    setActiveTab('dashboard');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  const handleLogout = async () => {
+    await logout();
+    setActiveTab('home');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#080c14] text-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 p-2 shadow-[0_0_25px_rgba(229,169,60,0.3)] animate-pulse flex items-center justify-center">
+            <img src="/chess_cure_emblem.png" alt="Emblem" className="w-full h-full object-contain" />
+          </div>
+          <div className="flex items-center gap-2 text-amber-400 text-xs font-semibold">
+            <div className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+            <span>Initializing Chess Cure PMS...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#080c14] text-white flex flex-col justify-between selection:bg-amber-500/30 selection:text-amber-200">
@@ -52,7 +113,7 @@ export default function App() {
         onTabChange={handleNavigate}
         onOpenAbout={() => setAboutModalOpen(true)}
         isAuthenticated={isAuthenticated}
-        userProfile={userProfile}
+        userProfile={user}
         onLogout={handleLogout}
       />
 
@@ -73,6 +134,7 @@ export default function App() {
           <Login 
             onNavigate={handleNavigate} 
             onLoginSuccess={handleLoginSuccess}
+            initialEmail={registeredEmail}
           />
         )}
 
@@ -82,6 +144,70 @@ export default function App() {
             onNavigate={handleNavigate} 
             onRegisterSuccess={handleRegisterSuccess}
           />
+        )}
+
+        {/* My Profile Page (Protected) */}
+        {activeTab === 'profile' && (
+          <Profile 
+            userProfile={user}
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {/* Play vs Computer (Interactive Board) */}
+        {activeTab === 'vs-computer' && (
+          <PlayVsComputer 
+            onNavigate={handleNavigate}
+            userProfile={user}
+            onAwardPoints={handleAwardPoints}
+          />
+        )}
+
+        {/* Play with Friends (Friend ID System) */}
+        {activeTab === 'with-friends' && (
+          <PlayWithFriends 
+            onNavigate={handleNavigate}
+            userProfile={user}
+          />
+        )}
+
+        {/* Tactical Challenge Arena (+50 PTS & Chat Unlock) */}
+        {activeTab === 'challenge' && (
+          <div className="py-4">
+            <ChessChallenge 
+              userPoints={userPoints}
+              onAwardPoints={handleAwardPoints}
+              chatUnlocked={chatUnlocked}
+              onUnlockChat={handleUnlockChat}
+              onNavigate={handleNavigate}
+            />
+          </div>
+        )}
+
+        {/* Secure Messaging Room */}
+        {activeTab === 'chat' && (
+          <div className="py-4">
+            <Chat 
+              chatUnlocked={chatUnlocked}
+              onUnlockChat={handleUnlockChat}
+              onNavigate={handleNavigate}
+              userProfile={user}
+              userPoints={userPoints}
+            />
+          </div>
+        )}
+
+        {/* Player Dashboard (Protected) */}
+        {activeTab === 'dashboard' && (
+          <div className="py-4">
+            <Dashboard 
+              userProfile={user}
+              userPoints={userPoints}
+              chatUnlocked={chatUnlocked}
+              onNavigate={handleNavigate}
+              onSelectMode={handleSelectMode}
+            />
+          </div>
         )}
 
         {/* Player Statistics View */}
@@ -104,7 +230,7 @@ export default function App() {
                   <Activity className="w-4 h-4 text-amber-400" />
                 </div>
                 <p className="text-4xl font-extrabold text-[#e5a93c]">
-                  {userProfile?.rating || '1,540'}
+                  {user?.rating || '1,540'}
                 </p>
                 <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
                   <span>+42 points</span>

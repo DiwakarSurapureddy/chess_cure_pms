@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { Mail, Lock, User, Eye, EyeOff, ArrowRight, ArrowLeft, Check, CheckCircle2, Shield, Award, Sparkles } from 'lucide-react';
+import { User, Mail, Phone, Lock, Eye, EyeOff, ArrowRight, ArrowLeft, Check, CheckCircle2, Shield, Sparkles } from 'lucide-react';
 import { CHESS_REGISTER_BG } from '../assets/images/chessImages';
+import { useAuth } from '../hooks/useAuth';
 
 export default function Signup({ onNavigate, onRegisterSuccess }) {
-  const [fullName, setFullName] = useState('');
+  const { register } = useAuth();
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [mobileNumber, setMobileNumber] = useState('');
   const [skillLevel, setSkillLevel] = useState('intermediate');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -38,12 +41,26 @@ export default function Signup({ onNavigate, onRegisterSuccess }) {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
 
-    if (!fullName || !email || !password || !confirmPassword) {
-      setErrorMessage('Please fill in all required fields.');
+    if (!username.trim() || !email.trim() || !mobileNumber.trim() || !password || !confirmPassword) {
+      setErrorMessage('Please fill in all required fields (Username, Email ID, Mobile Number, Passwords).');
+      return;
+    }
+
+    // Basic email format check
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setErrorMessage('Please enter a valid Email ID.');
+      return;
+    }
+
+    // Basic mobile format check (at least 7-15 digits, allowing optional +)
+    const phoneClean = mobileNumber.replace(/[\s\-()]/g, '');
+    if (!/^\+?[0-9]{7,15}$/.test(phoneClean)) {
+      setErrorMessage('Please enter a valid Mobile Number (e.g. +1 555 123 4567 or 10-digit number).');
       return;
     }
 
@@ -64,22 +81,29 @@ export default function Signup({ onNavigate, onRegisterSuccess }) {
 
     setIsLoading(true);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      setSuccessMessage('Account created successfully! Preparing your tactical arena...');
+    try {
+      const res = await register({
+        username: username.trim(),
+        email: email.trim(),
+        mobileNumber: mobileNumber.trim(),
+        password,
+        skill: skillLevel
+      });
+
+      setSuccessMessage('Account created successfully! Redirecting to sign in...');
 
       setTimeout(() => {
         if (onRegisterSuccess) {
-          onRegisterSuccess({
-            name: fullName,
-            email: email,
-            skill: skillLevel,
-            rating: skillLevel === 'beginner' ? 800 : skillLevel === 'intermediate' ? 1200 : skillLevel === 'advanced' ? 1600 : 2100
-          });
+          onRegisterSuccess(res.user);
         }
-        if (onNavigate) onNavigate('home');
+        // Flow: Register -> Login
+        if (onNavigate) onNavigate('login');
       }, 1000);
-    }, 1100);
+    } catch (err) {
+      setErrorMessage(err.message || 'Registration failed. Please check your details.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const skillOptions = [
@@ -91,39 +115,44 @@ export default function Signup({ onNavigate, onRegisterSuccess }) {
 
   return (
     <div className="relative min-h-[calc(100vh-80px)] flex items-center justify-center px-4 py-12 overflow-hidden">
-      {/* Background Chess Artwork with Dark Dramatic Gradient Overlays */}
+      {/* 
+        Background Chess Artwork:
+        Visibly rich and atmospheric with a balanced luxury dark overlay 
+        ensuring the form remains 100% crisp, clear and readable
+      */}
       <div className="absolute inset-0 z-0">
         <img
           src={CHESS_REGISTER_BG}
           alt="Macro Golden Chess Pieces Arena"
-          className="w-full h-full object-cover object-center filter brightness-60 scale-105 transition-transform duration-1000"
+          className="w-full h-full object-cover object-center filter brightness-90 contrast-110 opacity-35 scale-105 transition-transform duration-1000"
         />
-        {/* Layered dark gradients */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#080c14] via-[#080c14]/80 to-[#080c14]/85" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(8,12,20,0.85)_100%)]" />
+        {/* Subtle perspective chessboard pattern layer */}
+        <div className="absolute inset-0 hero-chess-grid opacity-20 pointer-events-none" />
+        
+        {/* Layered dark gradients providing soft atmospheric vignette */}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#080c14] via-[#080c14]/75 to-[#080c14]/80" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_20%,rgba(8,12,20,0.8)_100%)]" />
       </div>
 
       {/* Ambient glowing orbs */}
-      <div className="absolute top-1/3 -left-20 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/3 -right-20 w-80 h-80 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-1/4 -left-20 w-96 h-96 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-amber-600/15 rounded-full blur-3xl pointer-events-none" />
 
       {/* Main Register Card */}
       <div className="relative z-10 w-full max-w-lg animate-fade-in-up">
-        <div className="glass-card rounded-3xl p-6 sm:p-9 shadow-2xl relative overflow-hidden">
+        <div className="glass-card rounded-3xl p-6 sm:p-9 shadow-2xl relative overflow-hidden border border-amber-500/30 bg-[#091122]/90 backdrop-blur-2xl">
           
           {/* Subtle top golden light bar */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
 
-          {/* Card Header */}
+          {/* Card Header with Cropped King/Keyhole Emblem */}
           <div className="text-center space-y-2 mb-6">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 shadow-[0_0_20px_rgba(229,169,60,0.25)] mb-2 group">
-              <svg
-                className="w-8 h-8 text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.6)] transition-transform group-hover:scale-110"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M19 22H5a1 1 0 0 1-1-1v-1a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1zM7 16l-.8-2.4A4.002 4.002 0 0 1 7.2 9H9V7.5a2.5 2.5 0 0 1 4.2-1.83 5.48 5.48 0 0 0 1.94 1.15A3.003 3.003 0 0 1 17 9.64V12a4 4 0 0 1-4 4H7zm3.5-6a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
-              </svg>
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 p-1 shadow-[0_0_25px_rgba(229,169,60,0.3)] mb-2 group">
+              <img
+                src="/chess_cure_emblem.png"
+                alt="Chess Cure King Emblem"
+                className="w-full h-full object-contain filter drop-shadow-[0_0_8px_rgba(229,169,60,0.5)] transition-transform duration-300 group-hover:scale-110"
+              />
             </div>
             
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
@@ -137,14 +166,14 @@ export default function Signup({ onNavigate, onRegisterSuccess }) {
           {/* Status Alerts */}
           {errorMessage && (
             <div className="mb-5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2 animate-fade-in">
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0" />
               <span>{errorMessage}</span>
             </div>
           )}
 
           {successMessage && (
             <div className="mb-5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2 animate-fade-in">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>{successMessage}</span>
             </div>
           )}
@@ -152,10 +181,11 @@ export default function Signup({ onNavigate, onRegisterSuccess }) {
           {/* Register Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             
-            {/* Full Name Field */}
+            {/* Username Field */}
             <div className="space-y-1.5 text-left">
-              <label className="text-xs font-semibold text-slate-300">
-                Full Name / Player Handle
+              <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                <span>Username</span>
+                <span className="text-[11px] text-amber-400/80 font-normal">Unique player handle</span>
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -163,19 +193,19 @@ export default function Signup({ onNavigate, onRegisterSuccess }) {
                 </div>
                 <input
                   type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Magnus Carlsen"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="magnus_carlsen"
                   className="glass-input w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-slate-500 focus:text-white"
                   required
                 />
               </div>
             </div>
 
-            {/* Email Field */}
+            {/* Email ID Field */}
             <div className="space-y-1.5 text-left">
               <label className="text-xs font-semibold text-slate-300">
-                Email Address
+                Email ID
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -185,7 +215,28 @@ export default function Signup({ onNavigate, onRegisterSuccess }) {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="magnus@chesscure.com"
+                  placeholder="name@example.com"
+                  className="glass-input w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-slate-500 focus:text-white"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Mobile Number Field */}
+            <div className="space-y-1.5 text-left">
+              <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                <span>Mobile Number</span>
+                <span className="text-[11px] text-slate-400 font-normal">With country code or 10 digits</span>
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Phone className="w-4 h-4" />
+                </div>
+                <input
+                  type="tel"
+                  value={mobileNumber}
+                  onChange={(e) => setMobileNumber(e.target.value)}
+                  placeholder="+1 (555) 019-2834"
                   className="glass-input w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-slate-500 focus:text-white"
                   required
                 />
@@ -335,7 +386,7 @@ export default function Signup({ onNavigate, onRegisterSuccess }) {
             <button
               type="button"
               onClick={() => onNavigate && onNavigate('login')}
-              className="text-amber-400 font-semibold hover:text-amber-300 hover:underline inline-flex items-center gap-1"
+              className="text-amber-400 font-semibold hover:text-amber-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
             >
               <span>Sign In</span>
               <ArrowRight className="w-3 h-3" />
@@ -347,7 +398,7 @@ export default function Signup({ onNavigate, onRegisterSuccess }) {
             <button
               type="button"
               onClick={() => onNavigate && onNavigate('home')}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               <span>Back to ChessCure Home</span>

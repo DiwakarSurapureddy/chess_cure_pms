@@ -24,9 +24,9 @@ export default function Dashboard({
   onNavigate,
   onSelectMode 
 }) {
-  const profileName = userProfile?.name || 'Grandmaster Candidate';
-  const profileEmail = userProfile?.email || 'master@chesscure.com';
-  const rating = userProfile?.rating || 1620;
+  const profileName = userProfile?.username || userProfile?.name || 'Grandmaster Candidate';
+  const profileEmail = userProfile?.email || 'player@chesscure.com';
+  const rating = userProfile?.rating || 1540;
 
   const recentMatches = [
     {
@@ -180,8 +180,8 @@ export default function Dashboard({
 
               {/* Bot Sparring */}
               <div 
-                onClick={() => onSelectMode ? onSelectMode('computer') : onNavigate('challenge')}
-                className="p-4 rounded-2xl bg-[#0e172a]/90 border border-slate-800 hover:border-slate-700 transition-all cursor-pointer group"
+                onClick={() => onNavigate && onNavigate('vs-computer')}
+                className="p-4 rounded-2xl bg-[#0e172a]/90 border border-slate-800 hover:border-amber-500/40 transition-all cursor-pointer group"
               >
                 <div className="flex items-center justify-between">
                   <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
@@ -195,28 +195,28 @@ export default function Dashboard({
                   AI Bot Sparring
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  Train against adaptive AI tuned to your PMS rating level.
+                  Train against adaptive AI on a full interactive chess board.
                 </p>
               </div>
 
-              {/* Online Matchmaking */}
+              {/* Online Matchmaking / Play with Friends */}
               <div 
-                onClick={() => onSelectMode ? onSelectMode('online') : onNavigate('challenge')}
-                className="p-4 rounded-2xl bg-[#0e172a]/90 border border-slate-800 hover:border-slate-700 transition-all cursor-pointer group"
+                onClick={() => onNavigate && onNavigate('with-friends')}
+                className="p-4 rounded-2xl bg-[#0e172a]/90 border border-slate-800 hover:border-blue-500/40 transition-all cursor-pointer group"
               >
                 <div className="flex items-center justify-between">
                   <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center">
                     <Swords className="w-5 h-5" />
                   </div>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-500/10 text-purple-300">
-                    LIVE
+                    FRIEND ID
                   </span>
                 </div>
-                <h3 className="text-base font-bold text-white mt-3 group-hover:text-amber-400 transition-colors">
-                  Online Matchmaking
+                <h3 className="text-base font-bold text-white mt-3 group-hover:text-blue-400 transition-colors">
+                  Play with Friends
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  Compete against players globally in rated rapid matches.
+                  Connect via unique Player ID and launch private chess matches.
                 </p>
               </div>
             </div>

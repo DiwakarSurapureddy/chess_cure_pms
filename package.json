@@ -1,0 +1,10 @@
+{
+  "name": "chess-cure-pms",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "server": "node server/server.js",
+    "frontend": "npm --prefix frontend run dev",
+    "dev": "node server/server.js & npm --prefix frontend run dev"
+  }
+}

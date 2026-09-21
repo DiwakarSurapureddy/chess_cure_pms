@@ -21,14 +21,12 @@ export default function AboutModal({ isOpen, onClose, onNavigate }) {
 
         {/* Header */}
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-[0_0_20px_rgba(229,169,60,0.25)]">
-            <svg
-              className="w-8 h-8 text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-            >
-              <path d="M19 22H5a1 1 0 0 1-1-1v-1a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1zM7 16l-.8-2.4A4.002 4.002 0 0 1 7.2 9H9V7.5a2.5 2.5 0 0 1 4.2-1.83 5.48 5.48 0 0 0 1.94 1.15A3.003 3.003 0 0 1 17 9.64V12a4 4 0 0 1-4 4H7zm3.5-6a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
-            </svg>
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 p-1 flex items-center justify-center text-amber-400 shadow-[0_0_20px_rgba(229,169,60,0.25)]">
+            <img
+              src="/chess_cure_emblem.png"
+              alt="Chess Cure Emblem"
+              className="w-full h-full object-contain filter drop-shadow-[0_0_6px_rgba(229,169,60,0.5)]"
+            />
           </div>
           <div>
             <div className="flex items-center gap-2">

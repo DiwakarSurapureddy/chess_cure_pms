@@ -1,0 +1,42 @@
+{
+  "users": [
+    {
+      "id": "79b53b25-13de-4086-ae35-bf400b8d829b",
+      "username": "GrandmasterMaster",
+      "email": "master@chesscure.com",
+      "mobileNumber": "+1 (555) 019-2834",
+      "passwordHash": "c7c2c843471432b4c448af1633f478896336a4e819b8aa8ab9492086240b88bb3110667ba124a297930f5ac0974d8e6fe8da4faa6d0ed984930047eb83f1d477",
+      "salt": "3205b9d281cd1062de995aa89ca76d97",
+      "skill": "master",
+      "rating": 2150,
+      "playerId": "CC-994120",
+      "createdAt": "2026-09-21T14:13:57.109Z"
+    },
+    {
+      "id": "82eafc1e-888b-4799-8fe1-bbecef49ecd1",
+      "username": "Sumathi Gajjala",
+      "email": "gajjalasumathi@502gmail.com",
+      "mobileNumber": "08688830691",
+      "passwordHash": "bc6fe241001dc186fdb6881272a209cf33b3f3edb11229a6cc4a4abcf169691389a79417bc68e8dacef27acff6f6d93c5fc8a25f5f14e5ff3dc43500c9913d5a",
+      "salt": "9271769cc80549ba9b4c49ec43bc76b4",
+      "skill": "beginner",
+      "rating": 850,
+      "playerId": "CC-203540",
+      "createdAt": "2026-09-21T14:18:03.820Z"
+    }
+  ],
+  "sessions": [
+    {
+      "token": "cc_13d01c5762734014b0a1ecc19e017d0bed7a1057c64438fdae41b550017cdae1",
+      "userId": "82eafc1e-888b-4799-8fe1-bbecef49ecd1",
+      "createdAt": "2026-09-21T14:18:18.705Z",
+      "expiresAt": "2026-10-21T14:18:18.705Z"
+    },
+    {
+      "token": "cc_e8dd4dca72cfca946b13a2a4bd63e3846776d7a26f719295add24107e88ef362",
+      "userId": "82eafc1e-888b-4799-8fe1-bbecef49ecd1",
+      "createdAt": "2026-09-21T14:18:22.923Z",
+      "expiresAt": "2026-10-21T14:18:22.923Z"
+    }
+  ]
+}

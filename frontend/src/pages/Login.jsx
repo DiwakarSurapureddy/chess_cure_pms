@@ -1,63 +1,78 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, ArrowLeft, Shield, Sparkles, CheckCircle2 } from 'lucide-react';
 import { CHESS_LOGIN_BG } from '../assets/images/chessImages';
+import { useAuth } from '../hooks/useAuth';
 
-export default function Login({ onNavigate, onLoginSuccess }) {
-  const [email, setEmail] = useState('');
+export default function Login({ onNavigate, onLoginSuccess, initialEmail = '' }) {
+  const { login } = useAuth();
+  const [email, setEmail] = useState(initialEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState(
+    initialEmail ? 'Registration complete! Please enter your password to enter Dashboard.' : ''
+  );
   const [forgotModal, setForgotModal] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetSent, setResetSent] = useState(false);
 
-  const handleSubmit = (e) => {
+  // Sync if initialEmail changes
+  useEffect(() => {
+    if (initialEmail) {
+      setEmail(initialEmail);
+      setSuccessMessage('Registration complete! Please enter your password to enter Dashboard.');
+    }
+  }, [initialEmail]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
     
-    if (!email || !password) {
+    if (!email.trim() || !password) {
       setErrorMessage('Please provide both email and password.');
       return;
     }
 
     setIsLoading(true);
 
-    // Simulate login verification
-    setTimeout(() => {
-      setIsLoading(false);
-      setSuccessMessage('Authentication successful! Welcome back.');
+    try {
+      const res = await login(email.trim(), password, rememberMe);
+      setSuccessMessage('Authentication successful! Loading your dashboard...');
       
       setTimeout(() => {
         if (onLoginSuccess) {
-          onLoginSuccess({
-            name: email.split('@')[0] || 'Grandmaster Player',
-            email: email,
-            rating: 1540
-          });
+          onLoginSuccess(res.user);
         }
-        if (onNavigate) onNavigate('home');
-      }, 900);
-    }, 1000);
+        // Flow: Login -> Dashboard
+        if (onNavigate) onNavigate('dashboard');
+      }, 700);
+    } catch (err) {
+      setErrorMessage(err.message || 'Invalid email or password.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSocialLogin = (provider) => {
     setIsLoading(true);
     setTimeout(() => {
       setIsLoading(false);
-      setSuccessMessage(`Connected with ${provider}! Redirecting...`);
+      setSuccessMessage(`Connected with ${provider}! Redirecting to dashboard...`);
       setTimeout(() => {
         if (onLoginSuccess) {
           onLoginSuccess({
             name: `${provider} Chess Master`,
+            username: `${provider.toLowerCase()}_master`,
             email: `player@${provider.toLowerCase()}.com`,
+            playerId: 'CC-' + Math.floor(100000 + Math.random() * 900000),
             rating: 1620
           });
         }
-        if (onNavigate) onNavigate('home');
-      }, 900);
+        // Flow: Login -> Dashboard
+        if (onNavigate) onNavigate('dashboard');
+      }, 800);
     }, 800);
   };
 
@@ -79,39 +94,44 @@ export default function Login({ onNavigate, onLoginSuccess }) {
 
   return (
     <div className="relative min-h-[calc(100vh-80px)] flex items-center justify-center px-4 py-12 overflow-hidden">
-      {/* Background Chess Artwork with Dark Dramatic Gradient Overlays */}
+      {/* 
+        Background Chess Artwork:
+        Richly visible with subtle chessboard grid overlay and a dark vignette
+        ensuring the form remains 100% crisp and readable
+      */}
       <div className="absolute inset-0 z-0">
         <img
           src={CHESS_LOGIN_BG}
           alt="Chess Board with Glowing Golden King & Queen"
-          className="w-full h-full object-cover object-center filter brightness-60 scale-105 transition-transform duration-1000"
+          className="w-full h-full object-cover object-center filter brightness-90 contrast-110 opacity-35 scale-105 transition-transform duration-1000"
         />
+        {/* Subtle perspective chessboard pattern layer */}
+        <div className="absolute inset-0 hero-chess-grid opacity-20 pointer-events-none" />
+        
         {/* Layered dark gradients to frame the central card */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#080c14] via-[#080c14]/80 to-[#080c14]/85" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(8,12,20,0.85)_100%)]" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#080c14] via-[#080c14]/75 to-[#080c14]/80" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_20%,rgba(8,12,20,0.8)_100%)]" />
       </div>
 
       {/* Ambient glowing orbs */}
-      <div className="absolute top-1/4 -left-20 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 -right-20 w-80 h-80 bg-amber-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute top-1/4 -left-20 w-96 h-96 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-amber-600/15 rounded-full blur-3xl pointer-events-none" />
 
       {/* Main Login Card */}
       <div className="relative z-10 w-full max-w-md animate-fade-in-up">
-        <div className="glass-card rounded-3xl p-6 sm:p-9 shadow-2xl relative overflow-hidden">
+        <div className="glass-card rounded-3xl p-6 sm:p-9 shadow-2xl relative overflow-hidden border border-amber-500/30 bg-[#091122]/90 backdrop-blur-2xl">
           
           {/* Subtle top golden light line */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
 
-          {/* Card Header */}
+          {/* Card Header with Cropped King/Keyhole Emblem */}
           <div className="text-center space-y-2 mb-7">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 shadow-[0_0_20px_rgba(229,169,60,0.25)] mb-2 group">
-              <svg
-                className="w-8 h-8 text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.6)] transition-transform group-hover:rotate-6"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M19 22H5a1 1 0 0 1-1-1v-1a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1zM7 16l-.8-2.4A4.002 4.002 0 0 1 7.2 9H9V7.5a2.5 2.5 0 0 1 4.2-1.83 5.48 5.48 0 0 0 1.94 1.15A3.003 3.003 0 0 1 17 9.64V12a4 4 0 0 1-4 4H7zm3.5-6a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
-              </svg>
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 p-1 shadow-[0_0_25px_rgba(229,169,60,0.3)] mb-2 group">
+              <img
+                src="/chess_cure_emblem.png"
+                alt="Chess Cure King Emblem"
+                className="w-full h-full object-contain filter drop-shadow-[0_0_8px_rgba(229,169,60,0.5)] transition-transform duration-300 group-hover:scale-110"
+              />
             </div>
             
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
@@ -140,10 +160,10 @@ export default function Login({ onNavigate, onLoginSuccess }) {
           {/* Login Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             
-            {/* Email Field */}
+            {/* Email ID Field */}
             <div className="space-y-1.5 text-left">
               <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-                <span>Email or Player ID</span>
+                <span>Email ID</span>
                 <button
                   type="button"
                   onClick={handleDemoFill}
@@ -157,7 +177,7 @@ export default function Login({ onNavigate, onLoginSuccess }) {
                   <Mail className="w-4 h-4" />
                 </div>
                 <input
-                  type="text"
+                  type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@example.com"
