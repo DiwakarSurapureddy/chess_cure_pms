@@ -3,7 +3,7 @@ import ChessBoard from '../components/chess/ChessBoard';
 import { useAuth } from '../context/AuthContext';
 import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X } from 'lucide-react';
 
-export default function Dashboard({ initialMode = 'computer' }) {
+export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   const { recordGameResult } = useAuth();
   const [mode, setMode] = useState(initialMode);
   const [aiLevel, setAiLevel] = useState('intermediate');

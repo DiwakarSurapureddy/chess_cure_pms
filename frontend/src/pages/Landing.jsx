@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ArrowRight, ChevronRight, Crown, Users, Bot, Gamepad2, Trophy, Sparkles } from 'lucide-react';
+import { ArrowRight, ChevronRight, Crown, Users, Bot, Gamepad2, Trophy, Sparkles, Swords, Brain } from 'lucide-react';
+import { CHESS_LOGIN_BG } from '../assets/images/chessImages';
 
 export default function Landing({ onStartGame, onNavigate }) {
   const [activeCard, setActiveCard] = useState('computer');
@@ -37,42 +38,65 @@ export default function Landing({ onStartGame, onNavigate }) {
 
   return (
     <div className="relative min-h-[calc(100vh-80px)] flex flex-col justify-between max-w-7xl mx-auto px-6 pt-4 pb-12 overflow-hidden">
-      {/* Background ambient lighting effects */}
+      {/* Background chess artwork and ambient lighting from teammate */}
+      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none opacity-20">
+        {CHESS_LOGIN_BG && (
+          <img
+            src={CHESS_LOGIN_BG}
+            alt="Chess Arena Background"
+            className="w-full h-full object-cover object-center filter brightness-50"
+          />
+        )}
+      </div>
+
       <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-0 right-0 w-80 h-80 bg-blue-600/5 rounded-full blur-3xl pointer-events-none" />
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col justify-center space-y-10 z-10">
         
-        {/* Top Hero Section: Headline + 3D Knight Graphic */}
+        {/* Top Hero Section: Headline + Teammate Logo & Emblem Visual */}
         <div className="grid grid-cols-1 lg:grid-cols-12 items-center gap-6 pt-2">
           {/* Left Text Column */}
           <div className="lg:col-span-6 space-y-4 pr-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-semibold">
+              <img
+                src="/chess_cure_emblem.png"
+                alt="Emblem"
+                className="w-4 h-4 object-contain"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+              <span>Cognitive Acuity & Tactical Chess PMS</span>
+            </div>
+
             <h1 className="text-4xl sm:text-5xl lg:text-[56px] font-extrabold tracking-tight leading-[1.1] text-white">
               Think Ahead.
               <span className="block text-[#e5a93c] mt-1 font-extrabold">Move Smart.</span>
             </h1>
             <p className="text-slate-300/80 text-base sm:text-lg max-w-md font-normal leading-relaxed pt-1">
-              Sharpen your mind with chess challenges and unlock meaningful conversations.
+              Sharpen your mind with tactical chess challenges, spar against AI bots, and track your career performance.
             </p>
           </div>
 
-          {/* Right Hero Visual Column: 3D Chess Knight with warm gold rim light */}
+          {/* Right Hero Visual Column: Logo / Knight Emblem */}
           <div className="lg:col-span-6 flex justify-center lg:justify-end relative">
-            <div className="relative w-full max-w-[420px] aspect-square rounded-2xl overflow-hidden flex items-center justify-center group">
+            <div className="relative w-full max-w-[420px] aspect-square rounded-3xl overflow-hidden flex items-center justify-center group border border-amber-500/30 shadow-[0_0_40px_rgba(229,169,60,0.18)] bg-[#091122]">
               <img
-                src="/chess_knight_hero.jpg"
-                alt="ChessCure 3D Golden Rim-lit Knight"
+                src="/chess_cure_logo.jpg"
+                alt="ChessCure Emblem & Knight"
                 className="w-full h-full object-cover object-center transform transition-transform duration-700 group-hover:scale-105"
+                onError={(e) => {
+                  // Fallback to knight hero if logo is not found
+                  e.target.src = '/chess_knight_hero.jpg';
+                }}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#080c14] via-transparent to-transparent opacity-60" />
-              <div className="absolute inset-0 bg-gradient-to-r from-[#080c14] via-transparent to-transparent opacity-40 lg:opacity-60" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#080d1a] via-transparent to-transparent pointer-events-none" />
             </div>
           </div>
         </div>
 
-        {/* 3 Game Mode Cards Row: Play with Computer, Play Online, Two Players */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        {/* Mode Selector Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
           {modes.map((mode) => {
             const isSelected = activeCard === mode.id;
             return (
@@ -80,7 +104,7 @@ export default function Landing({ onStartGame, onNavigate }) {
                 key={mode.id}
                 onClick={() => {
                   setActiveCard(mode.id);
-                  onStartGame(mode.id);
+                  if (onStartGame) onStartGame(mode.id);
                 }}
                 className={`group relative rounded-2xl p-6 transition-all duration-300 cursor-pointer flex flex-col justify-between h-48 sm:h-52 ${
                   isSelected
@@ -123,7 +147,7 @@ export default function Landing({ onStartGame, onNavigate }) {
 
         {/* Tactical Challenges Banner */}
         <div 
-          onClick={() => onNavigate('challenges')}
+          onClick={() => onNavigate && onNavigate('challenges')}
           className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0b1424] via-[#0e192c] to-[#0c1525] border border-[#1b283f] px-6 py-5 flex items-center justify-between cursor-pointer hover:border-amber-500/50 transition-all duration-300 shadow-xl group"
         >
           {/* Left section: Crown + Text */}
@@ -161,9 +185,6 @@ export default function Landing({ onStartGame, onNavigate }) {
         <p className="italic font-light tracking-wide text-slate-400/70">
           "The best move is the one that builds a better you."
         </p>
-
-        {/* Decorative subtle checkered board texture at bottom right */}
-        <div className="absolute -bottom-6 -right-6 w-52 h-28 opacity-15 pointer-events-none chess-board-pattern mask-radial" />
       </footer>
     </div>
   );

@@ -8,7 +8,7 @@ import Profile from './pages/Profile';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
-import { Swords, X, Volume2, Moon, Shield, Palette } from 'lucide-react';
+import { Swords, X, Volume2, Shield, Palette } from 'lucide-react';
 
 function AppContent() {
   const [currentView, setCurrentView] = useState('home'); // 'home' | 'play' | 'challenges' | 'profile' | 'settings' | 'login' | 'signup' | 'forgot-password'
@@ -42,11 +42,11 @@ function AppContent() {
         )}
 
         {currentView === 'play' && (
-          <Dashboard initialMode={selectedGameMode} />
+          <Dashboard initialMode={selectedGameMode} onNavigate={(tab) => setCurrentView(tab)} />
         )}
 
         {currentView === 'challenges' && (
-          <ChessChallenge />
+          <ChessChallenge onNavigate={(tab) => setCurrentView(tab)} />
         )}
 
         {currentView === 'profile' && (
