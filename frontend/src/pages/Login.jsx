@@ -1,363 +1,172 @@
 import React, { useState } from 'react';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, ArrowLeft, Shield, Sparkles, CheckCircle2 } from 'lucide-react';
-import { CHESS_LOGIN_BG } from '../assets/images/chessImages';
+import { useAuth } from '../context/AuthContext';
+import { Mail, Lock, User, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
 
-export default function Login({ onNavigate, onLoginSuccess }) {
-  const [email, setEmail] = useState('');
+export default function Login({ onNavigate }) {
+  const { login, loginWithGoogle, loginWithFacebook, continueAsGuest } = useAuth();
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
-  const [forgotModal, setForgotModal] = useState(false);
-  const [resetEmail, setResetEmail] = useState('');
-  const [resetSent, setResetSent] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    setErrorMessage('');
-    
-    if (!email || !password) {
-      setErrorMessage('Please provide both email and password.');
+    if (!identifier.trim() || !password) {
+      setError('Please enter your email/phone and password');
       return;
     }
-
-    setIsLoading(true);
-
-    // Simulate login verification
-    setTimeout(() => {
-      setIsLoading(false);
-      setSuccessMessage('Authentication successful! Welcome back.');
-      
-      setTimeout(() => {
-        if (onLoginSuccess) {
-          onLoginSuccess({
-            name: email.split('@')[0] || 'Grandmaster Player',
-            email: email,
-            rating: 1540
-          });
-        }
-        if (onNavigate) onNavigate('home');
-      }, 900);
-    }, 1000);
+    login(identifier, password);
+    onNavigate('home');
   };
 
-  const handleSocialLogin = (provider) => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      setSuccessMessage(`Connected with ${provider}! Redirecting...`);
-      setTimeout(() => {
-        if (onLoginSuccess) {
-          onLoginSuccess({
-            name: `${provider} Chess Master`,
-            email: `player@${provider.toLowerCase()}.com`,
-            rating: 1620
-          });
-        }
-        if (onNavigate) onNavigate('home');
-      }, 900);
-    }, 800);
+  const handleGoogleLogin = () => {
+    loginWithGoogle();
+    onNavigate('home');
   };
 
-  const handleForgotSubmit = (e) => {
-    e.preventDefault();
-    if (!resetEmail) return;
-    setResetSent(true);
-    setTimeout(() => {
-      setForgotModal(false);
-      setResetSent(false);
-      setResetEmail('');
-    }, 2000);
+  const handleFacebookLogin = () => {
+    loginWithFacebook();
+    onNavigate('home');
   };
 
-  const handleDemoFill = () => {
-    setEmail('master@chesscure.com');
-    setPassword('Checkmate2026!');
+  const handleGuestLogin = () => {
+    continueAsGuest();
+    onNavigate('home');
   };
 
   return (
-    <div className="relative min-h-[calc(100vh-80px)] flex items-center justify-center px-4 py-12 overflow-hidden">
-      {/* Background Chess Artwork with Dark Dramatic Gradient Overlays */}
-      <div className="absolute inset-0 z-0">
-        <img
-          src={CHESS_LOGIN_BG}
-          alt="Chess Board with Glowing Golden King & Queen"
-          className="w-full h-full object-cover object-center filter brightness-60 scale-105 transition-transform duration-1000"
-        />
-        {/* Layered dark gradients to frame the central card */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#080c14] via-[#080c14]/80 to-[#080c14]/85" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(8,12,20,0.85)_100%)]" />
-      </div>
+    <div className="min-h-[calc(100vh-90px)] flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-md bg-[#0c1424]/90 border border-slate-800 rounded-3xl p-8 shadow-2xl backdrop-blur-xl relative overflow-hidden">
+        {/* Glow effect */}
+        <div className="absolute -top-16 -right-16 w-40 h-40 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-16 -left-16 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Ambient glowing orbs */}
-      <div className="absolute top-1/4 -left-20 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 -right-20 w-80 h-80 bg-amber-600/10 rounded-full blur-3xl pointer-events-none" />
+        {/* Header */}
+        <div className="text-center space-y-2 mb-8">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 mb-1">
+            <svg className="w-7 h-7" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 22H5a1 1 0 0 1-1-1v-1a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1zM7 16l-.8-2.4A4.002 4.002 0 0 1 7.2 9H9V7.5a2.5 2.5 0 0 1 4.2-1.83 5.48 5.48 0 0 0 1.94 1.15A3.003 3.003 0 0 1 17 9.64V12a4 4 0 0 1-4 4H7zm3.5-6a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
+            </svg>
+          </div>
+          <h2 className="text-2xl font-extrabold text-white tracking-tight">Welcome Back</h2>
+          <p className="text-xs text-slate-400">Sign in to your ChessCure account to track your career</p>
+        </div>
 
-      {/* Main Login Card */}
-      <div className="relative z-10 w-full max-w-md animate-fade-in-up">
-        <div className="glass-card rounded-3xl p-6 sm:p-9 shadow-2xl relative overflow-hidden">
-          
-          {/* Subtle top golden light line */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-[2px] bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
+        {/* Social Logins */}
+        <div className="space-y-2.5 mb-6">
+          {/* Continue with Google */}
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            className="w-full py-2.5 px-4 rounded-xl bg-[#111c30] hover:bg-[#16243d] border border-slate-700/80 text-white text-xs font-semibold flex items-center justify-center gap-3 transition-all active:scale-[0.99] group shadow-sm"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24">
+              <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.3 9 5 12 5z"/>
+              <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/>
+              <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.8s.2-2.1.4-2.8L1.9 6.3C.7 8.7 0 10.3 0 12s.7 3.3 1.9 5.7l3.7-2.9z"/>
+              <path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.3-6.4-5.2L1.9 16C3.7 19.7 7.5 23 12 23z"/>
+            </svg>
+            <span>Continue with Google</span>
+          </button>
 
-          {/* Card Header */}
-          <div className="text-center space-y-2 mb-7">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 shadow-[0_0_20px_rgba(229,169,60,0.25)] mb-2 group">
-              <svg
-                className="w-8 h-8 text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.6)] transition-transform group-hover:rotate-6"
-                viewBox="0 0 24 24"
-                fill="currentColor"
+          {/* Continue with Facebook */}
+          <button
+            type="button"
+            onClick={handleFacebookLogin}
+            className="w-full py-2.5 px-4 rounded-xl bg-[#111c30] hover:bg-[#16243d] border border-slate-700/80 text-white text-xs font-semibold flex items-center justify-center gap-3 transition-all active:scale-[0.99] shadow-sm"
+          >
+            <svg className="w-4 h-4 fill-[#1877F2]" viewBox="0 0 24 24">
+              <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+            </svg>
+            <span>Continue with Facebook</span>
+          </button>
+
+          {/* Play as Guest */}
+          <button
+            type="button"
+            onClick={handleGuestLogin}
+            className="w-full py-2 px-4 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>Play Instantly as Guest</span>
+          </button>
+        </div>
+
+        {/* Divider */}
+        <div className="relative flex items-center justify-center my-6">
+          <div className="border-t border-slate-800 w-full" />
+          <span className="bg-[#0c1424] px-3 text-[11px] uppercase tracking-wider text-slate-500 font-medium">
+            or with credentials
+          </span>
+          <div className="border-t border-slate-800 w-full" />
+        </div>
+
+        {error && (
+          <div className="mb-4 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs text-center">
+            {error}
+          </div>
+        )}
+
+        {/* Credentials Form */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+              Email or Mobile Number
+            </label>
+            <div className="relative">
+              <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+              <input
+                type="text"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                placeholder="grandmaster@chess.com or +91 9876543210"
+                className="w-full pl-10 pr-4 py-2.5 bg-[#080d17] border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-400 transition-colors"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-slate-300">Password</label>
+              <button
+                type="button"
+                onClick={() => onNavigate('forgot-password')}
+                className="text-[11px] text-amber-400 hover:text-amber-300 transition-colors"
               >
-                <path d="M19 22H5a1 1 0 0 1-1-1v-1a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1zM7 16l-.8-2.4A4.002 4.002 0 0 1 7.2 9H9V7.5a2.5 2.5 0 0 1 4.2-1.83 5.48 5.48 0 0 0 1.94 1.15A3.003 3.003 0 0 1 17 9.64V12a4 4 0 0 1-4 4H7zm3.5-6a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
-              </svg>
+                Forgot Password?
+              </button>
             </div>
-            
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
-              Welcome Back
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-400 max-w-xs mx-auto">
-              Sign in to resume your cognitive training and tactical challenges.
-            </p>
-          </div>
-
-          {/* Status Alerts */}
-          {errorMessage && (
-            <div className="mb-5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2 animate-fade-in">
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-              <span>{errorMessage}</span>
-            </div>
-          )}
-
-          {successMessage && (
-            <div className="mb-5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2 animate-fade-in">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span>{successMessage}</span>
-            </div>
-          )}
-
-          {/* Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            
-            {/* Email Field */}
-            <div className="space-y-1.5 text-left">
-              <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-                <span>Email or Player ID</span>
-                <button
-                  type="button"
-                  onClick={handleDemoFill}
-                  className="text-[11px] text-amber-400/80 hover:text-amber-300 underline font-normal cursor-pointer"
-                >
-                  Quick Demo Fill
-                </button>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Mail className="w-4 h-4" />
-                </div>
-                <input
-                  type="text"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  className="glass-input w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-slate-500 focus:text-white"
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Password Field */}
-            <div className="space-y-1.5 text-left">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-slate-300">
-                  Password
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setForgotModal(true)}
-                  className="text-[11px] text-amber-400/80 hover:text-amber-300 hover:underline"
-                >
-                  Forgot Password?
-                </button>
-              </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  className="glass-input w-full pl-10 pr-11 py-3 rounded-xl text-sm text-white placeholder-slate-500 focus:text-white"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-white transition-colors"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Remember Me Checkbox */}
-            <div className="flex items-center justify-between pt-1">
-              <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-400 hover:text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-amber-500 accent-amber-500 focus:ring-amber-500/20"
-                />
-                <span>Remember this device for 30 days</span>
-              </label>
-            </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full mt-2 py-3.5 rounded-xl bg-gradient-to-r from-[#e5a93c] to-[#f5b94e] text-black font-bold text-sm shadow-[0_0_20px_rgba(229,169,60,0.3)] hover:shadow-[0_0_30px_rgba(229,169,60,0.45)] transition-all duration-200 transform hover:scale-[1.01] active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-70 cursor-pointer"
-            >
-              {isLoading ? (
-                <>
-                  <div className="w-4 h-4 rounded-full border-2 border-black border-t-transparent animate-spin" />
-                  <span>Verifying Credentials...</span>
-                </>
-              ) : (
-                <>
-                  <span>Sign In to ChessCure</span>
-                  <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-                </>
-              )}
-            </button>
-          </form>
-
-          {/* Social Sign In Divider */}
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-800" />
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <span className="px-3 bg-[#0d1628] text-slate-400 rounded-full font-medium">
-                Or continue with
-              </span>
+            <div className="relative">
+              <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full pl-10 pr-4 py-2.5 bg-[#080d17] border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-400 transition-colors"
+              />
             </div>
           </div>
 
-          {/* Social Buttons */}
-          <div className="grid grid-cols-3 gap-3">
-            {/* Google */}
-            <button
-              type="button"
-              onClick={() => handleSocialLogin('Google')}
-              className="py-2.5 px-3 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 text-xs font-semibold text-slate-300 hover:text-white transition-all flex items-center justify-center gap-2"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
-                <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.9C6.2 7.4 8.9 5 12 5z"/>
-                <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5.1 3.7-8.8z"/>
-                <path fill="#FBBC05" d="M5.3 14.7c-.2-.7-.4-1.4-.4-2.2s.2-1.5.4-2.2L1.6 7.4C.6 9.4 0 11.6 0 14s.6 4.6 1.6 6.6l3.7-2.9z"/>
-                <path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.4-6.7-5.3L1.6 16C3.5 20.4 7.4 23 12 23z"/>
-              </svg>
-              <span>Google</span>
-            </button>
+          <button
+            type="submit"
+            className="w-full py-3 rounded-xl bg-[#e5a93c] hover:bg-[#f5b94e] text-black font-bold text-xs tracking-wide uppercase transition-all shadow-lg shadow-amber-500/20 active:scale-[0.99] flex items-center justify-center gap-2 mt-2"
+          >
+            <span>Sign In</span>
+            <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+          </button>
+        </form>
 
-            {/* Chess.com */}
-            <button
-              type="button"
-              onClick={() => handleSocialLogin('Chess.com')}
-              className="py-2.5 px-3 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 text-xs font-semibold text-slate-300 hover:text-white transition-all flex items-center justify-center gap-1.5"
-            >
-              <span className="text-emerald-400 font-black text-sm">♟</span>
-              <span>Chess.com</span>
-            </button>
-
-            {/* GitHub */}
-            <button
-              type="button"
-              onClick={() => handleSocialLogin('GitHub')}
-              className="py-2.5 px-3 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 text-xs font-semibold text-slate-300 hover:text-white transition-all flex items-center justify-center gap-2"
-            >
-              <svg className="w-4 h-4 fill-current text-slate-300" viewBox="0 0 24 24">
-                <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
-              </svg>
-              <span>GitHub</span>
-            </button>
-          </div>
-
-          {/* Switch to Register */}
-          <div className="mt-7 text-center text-xs text-slate-400">
-            <span>Don't have an account yet? </span>
-            <button
-              type="button"
-              onClick={() => onNavigate && onNavigate('signup')}
-              className="text-amber-400 font-semibold hover:text-amber-300 hover:underline inline-flex items-center gap-1"
-            >
-              <span>Register for free</span>
-              <ArrowRight className="w-3 h-3" />
-            </button>
-          </div>
-
-          {/* Back to Home Button */}
-          <div className="mt-4 pt-4 border-t border-slate-800/80 text-center">
-            <button
-              type="button"
-              onClick={() => onNavigate && onNavigate('home')}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back to ChessCure Home</span>
-            </button>
-          </div>
-        </div>
+        {/* Footer Link */}
+        <p className="text-center text-xs text-slate-400 mt-6">
+          Don't have an account?{' '}
+          <button
+            onClick={() => onNavigate('signup')}
+            className="text-amber-400 hover:underline font-semibold"
+          >
+            Sign up now
+          </button>
+        </p>
       </div>
-
-      {/* Forgot Password Modal */}
-      {forgotModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="glass-card rounded-2xl p-6 max-w-sm w-full space-y-4 border border-slate-700 animate-fade-in-up">
-            <h3 className="text-lg font-bold text-white">Reset Your Password</h3>
-            <p className="text-xs text-slate-400">
-              Enter your registered email address and we'll send you an instant reset link.
-            </p>
-            {resetSent ? (
-              <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs text-center font-medium">
-                ✓ Reset link dispatched! Check your inbox.
-              </div>
-            ) : (
-              <form onSubmit={handleForgotSubmit} className="space-y-3">
-                <input
-                  type="email"
-                  value={resetEmail}
-                  onChange={(e) => setResetEmail(e.target.value)}
-                  placeholder="your.email@example.com"
-                  className="glass-input w-full px-3.5 py-2.5 rounded-xl text-xs text-white placeholder-slate-500"
-                  required
-                />
-                <div className="flex gap-2 justify-end pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setForgotModal(false)}
-                    className="px-3 py-2 rounded-xl text-xs text-slate-400 hover:text-white bg-slate-800"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-xl text-xs font-bold bg-[#e5a93c] hover:bg-[#f5b94e] text-black"
-                  >
-                    Send Link
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
