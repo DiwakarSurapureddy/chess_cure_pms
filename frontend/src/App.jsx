@@ -11,7 +11,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import { Swords, X, Volume2, Shield, Palette } from 'lucide-react';
 
 function AppContent() {
-  const [currentView, setCurrentView] = useState('home'); // 'home' | 'play' | 'challenges' | 'profile' | 'settings' | 'login' | 'signup' | 'forgot-password'
+  const [currentView, setCurrentView] = useState('login'); // 'login' | 'signup' | 'forgot-password' | 'home' | 'play' | 'challenges' | 'profile' | 'settings'
   const [selectedGameMode, setSelectedGameMode] = useState('computer');
   const [onlineModalOpen, setOnlineModalOpen] = useState(false);
 
@@ -30,10 +30,14 @@ function AppContent() {
     setCurrentView('play');
   };
 
+  const isAuthView = currentView === 'login' || currentView === 'signup' || currentView === 'forgot-password';
+
   return (
     <div className="min-h-screen bg-[#080c14] text-white flex flex-col justify-between selection:bg-amber-500/30 selection:text-amber-200">
       {/* Header Navigation */}
-      <Navbar activeTab={currentView} onTabChange={(tab) => setCurrentView(tab)} />
+      {!isAuthView && (
+        <Navbar activeTab={currentView} onTabChange={(tab) => setCurrentView(tab)} />
+      )}
 
       {/* Main Page Routing */}
       <main className="flex-1 flex flex-col justify-center">
@@ -42,7 +46,11 @@ function AppContent() {
         )}
 
         {currentView === 'play' && (
-          <Dashboard initialMode={selectedGameMode} onNavigate={(tab) => setCurrentView(tab)} />
+          <Dashboard
+            key={selectedGameMode}
+            initialMode={selectedGameMode}
+            onNavigate={(tab) => setCurrentView(tab)}
+          />
         )}
 
         {currentView === 'challenges' && (

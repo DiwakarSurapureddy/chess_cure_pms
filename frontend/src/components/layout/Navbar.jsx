@@ -14,13 +14,11 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
         className="flex items-center gap-3 cursor-pointer group select-none"
       >
         <div className="relative flex items-center justify-center">
-          <svg
-            className="w-9 h-9 text-amber-400 drop-shadow-[0_0_10px_rgba(245,158,11,0.5)] transition-transform duration-300 group-hover:scale-105"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-          >
-            <path d="M19 22H5a1 1 0 0 1-1-1v-1a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1zM7 16l-.8-2.4A4.002 4.002 0 0 1 7.2 9H9V7.5a2.5 2.5 0 0 1 4.2-1.83 5.48 5.48 0 0 0 1.94 1.15A3.003 3.003 0 0 1 17 9.64V12a4 4 0 0 1-4 4H7zm3.5-6a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
-          </svg>
+          <img
+            src="/chess_cure_logo.jpg"
+            alt="ChessCure Logo"
+            className="w-9 h-9 sm:w-10 sm:h-10 object-contain rounded-xl shadow-md border border-amber-500/30 group-hover:scale-105 transition-transform duration-300 drop-shadow-[0_0_10px_rgba(245,158,11,0.35)]"
+          />
         </div>
         <div className="text-2xl font-bold tracking-tight text-white flex items-center">
           Chess<span className="text-[#e5a93c]">Cure</span>
@@ -143,7 +141,7 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
                 <div className="border-t border-slate-800 my-1"></div>
 
                 <button
-                  onClick={() => { logout(); setProfileOpen(false); }}
+                  onClick={() => { logout(); setProfileOpen(false); if (onTabChange) onTabChange('login'); }}
                   className="w-full flex items-center gap-2.5 px-4 py-2 text-xs text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
                 >
                   <LogOut className="w-3.5 h-3.5" />

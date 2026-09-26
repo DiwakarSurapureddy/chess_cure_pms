@@ -29,9 +29,9 @@ export default function Landing({ onStartGame, onNavigate }) {
     },
     {
       id: 'two-player',
-      title: 'Two Players',
+      title: 'Play vs Friends',
       desc: 'Local Pass & Play mode. Challenge a friend on the same device.',
-      icon: <Gamepad2 className="w-8 h-8 text-[#7e91ab]" />,
+      icon: <Users className="w-8 h-8 text-[#7e91ab]" />,
       isFeatured: false,
     },
   ];

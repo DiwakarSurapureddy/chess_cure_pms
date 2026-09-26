@@ -28,6 +28,8 @@ export default function ChessBoard({
   const [gameStatus, setGameStatus] = useState('In Progress');
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [secretDiscovered, setSecretDiscovered] = useState(false);
+  const aiTimeoutRef = useRef(null);
+  const prevGameModeRef = useRef(gameMode);
 
   // Update board state
   const refreshBoard = () => {
@@ -51,19 +53,37 @@ export default function ChessBoard({
 
   // Reset Game
   const resetGame = () => {
+    if (aiTimeoutRef.current) {
+      clearTimeout(aiTimeoutRef.current);
+    }
     chess.reset();
     setSelectedSquare(null);
     setLegalMoves([]);
+    setIsAiThinking(false);
     setSecretDiscovered(false);
     refreshBoard();
   };
+
+  // Whenever gameMode changes, reset cleanly from the beginning
+  useEffect(() => {
+    if (prevGameModeRef.current !== gameMode) {
+      prevGameModeRef.current = gameMode;
+      resetGame();
+    }
+    return () => {
+      if (aiTimeoutRef.current) {
+        clearTimeout(aiTimeoutRef.current);
+      }
+    };
+  }, [gameMode]);
 
   // AI Move logic
   const makeAiMove = () => {
     if (chess.isGameOver()) return;
     setIsAiThinking(true);
 
-    setTimeout(() => {
+    if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
+    aiTimeoutRef.current = setTimeout(() => {
       const moves = chess.moves({ verbose: true });
       if (moves.length === 0) {
         setIsAiThinking(false);
@@ -157,7 +177,7 @@ export default function ChessBoard({
             </div>
             <div>
               <p className="text-xs font-bold text-white leading-none">
-                {gameMode === 'computer' ? `Stockfish AI (${aiDifficulty.toUpperCase()})` : 'Player 2 (Black)'}
+                {gameMode === 'computer' ? `Stockfish AI (${aiDifficulty.toUpperCase()})` : 'Friend / Player 2 (Black)'}
               </p>
               <p className="text-[10px] text-slate-400 mt-0.5">Rating: 1550</p>
             </div>
@@ -190,8 +210,8 @@ export default function ChessBoard({
                       isSelected
                         ? 'bg-amber-500/50'
                         : isLight
-                        ? 'bg-[#22334d]'
-                        : 'bg-[#0e1726]'
+                        ? 'bg-white'
+                        : 'bg-black'
                     }`}
                   >
                     {/* Rank / File Coordinate Labels */}
@@ -243,7 +263,9 @@ export default function ChessBoard({
               <User className="w-4 h-4" />
             </div>
             <div>
-              <p className="text-xs font-bold text-white leading-none">You (White)</p>
+              <p className="text-xs font-bold text-white leading-none">
+                {gameMode === 'computer' ? 'You (White)' : 'Player 1 (White)'}
+              </p>
               <p className="text-[10px] text-slate-400 mt-0.5">Rating: 1540</p>
             </div>
           </div>
@@ -254,7 +276,9 @@ export default function ChessBoard({
                 : 'bg-slate-800 text-slate-400'
             }`}
           >
-            {turn === 'w' ? 'Your Turn' : "Opponent's Turn"}
+            {gameMode === 'computer'
+              ? (turn === 'w' ? 'Your Turn' : "Opponent's Turn")
+              : (turn === 'w' ? "Player 1's Turn (White)" : "Player 2's Turn (Black)")}
           </span>
         </div>
       </div>

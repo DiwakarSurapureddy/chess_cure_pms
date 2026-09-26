@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ChessBoard from '../components/chess/ChessBoard';
 import { useAuth } from '../context/AuthContext';
 import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X } from 'lucide-react';
@@ -10,6 +10,12 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   const [secretUnlocked, setSecretUnlocked] = useState(false);
   const [showSecretModal, setShowSecretModal] = useState(false);
 
+  useEffect(() => {
+    if (initialMode) {
+      setMode(initialMode);
+    }
+  }, [initialMode]);
+
   const handleSecretMove = (move) => {
     setSecretUnlocked(true);
     setShowSecretModal(true);
@@ -18,8 +24,8 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   const handleGameOver = (resultData) => {
     recordGameResult({
       id: 'match_' + Date.now(),
-      opponent: mode === 'computer' ? `Stockfish AI (${aiLevel})` : 'Player 2',
-      mode: mode === 'computer' ? 'vs Computer' : 'Two Players',
+      opponent: mode === 'computer' ? `Stockfish AI (${aiLevel})` : 'Friend (Player 2)',
+      mode: mode === 'computer' ? 'vs Computer' : 'Play vs Friends',
       result: resultData.result,
       method: resultData.method,
       moves: resultData.moves,
@@ -54,8 +60,8 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
                 : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
             }`}
           >
-            <Gamepad2 className="w-3.5 h-3.5" />
-            <span>Two Players</span>
+            <Users className="w-3.5 h-3.5" />
+            <span>Play vs Friends</span>
           </button>
         </div>
 
@@ -93,6 +99,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
 
       {/* Main Playable Chessboard */}
       <ChessBoard
+        key={mode}
         gameMode={mode}
         aiDifficulty={aiLevel}
         onSecretMoveDetected={handleSecretMove}

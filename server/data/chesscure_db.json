@@ -23,6 +23,18 @@
       "rating": 850,
       "playerId": "CC-203540",
       "createdAt": "2026-09-21T14:18:03.820Z"
+    },
+    {
+      "id": "0d7bbcf5-bd06-4433-b18b-52bc42d6101f",
+      "username": "Sumathi",
+      "email": "gajjalasumathi502@gmail.com",
+      "mobileNumber": "8688830691",
+      "passwordHash": "d861e05b9f4e6e25b11a671edd437e3d360cc8c1dee799b20138bde59e033096d235520e086ec52527847ca6d22e36795d7b3ba2e59021cdd855a1c16fd9bc5e",
+      "salt": "365f8f5a3715689f1214c1f9f932ee00",
+      "skill": "beginner",
+      "rating": 850,
+      "playerId": "CC-526841",
+      "createdAt": "2026-09-22T14:41:14.526Z"
     }
   ],
   "sessions": [

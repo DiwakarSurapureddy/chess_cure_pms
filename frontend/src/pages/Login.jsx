@@ -72,7 +72,21 @@ export default function Login({ onNavigate, onLoginSuccess, initialEmail = '' })
   };
 
   return (
-    <div className="relative min-h-[calc(100vh-90px)] flex items-center justify-center px-4 py-10 overflow-hidden">
+    <div className="relative min-h-screen flex items-center justify-center px-4 py-16 sm:py-12 overflow-x-hidden">
+      {/* ChessCure Logo fixed at TOP-LEFT corner */}
+      <div 
+        onClick={() => onNavigate && onNavigate('home')}
+        className="fixed top-6 left-6 sm:top-8 sm:left-8 z-50 flex items-center gap-3 cursor-pointer select-none group"
+      >
+        <img
+          src="/chess_cure_logo.jpg"
+          alt="ChessCure Logo"
+          className="h-12 w-12 sm:h-14 sm:w-14 aspect-square object-contain rounded-2xl shadow-xl border border-amber-500/20 group-hover:border-amber-400/50 transition-all duration-300 drop-shadow-[0_0_15px_rgba(229,169,60,0.25)]"
+        />
+        <div className="text-2xl font-bold tracking-tight text-white flex items-center">
+          Chess<span className="text-[#e5a93c]">Cure</span>
+        </div>
+      </div>
       {/* Background artwork */}
       <div className="absolute inset-0 z-0 pointer-events-none">
         {CHESS_LOGIN_BG && (

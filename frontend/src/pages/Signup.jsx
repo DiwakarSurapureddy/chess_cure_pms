@@ -131,7 +131,23 @@ export default function Signup({ onNavigate }) {
   };
 
   return (
-    <div className="relative min-h-[calc(100vh-90px)] flex items-center justify-center px-4 py-10 overflow-hidden">
+    <div className="relative min-h-screen flex items-center justify-center px-4 py-16 sm:py-12 overflow-x-hidden">
+      {/* ChessCure Logo fixed at TOP-LEFT corner */}
+      <div 
+        onClick={() => onNavigate && onNavigate('login')}
+        className="fixed top-6 left-6 sm:top-8 sm:left-8 z-50 flex items-center gap-3 select-none cursor-pointer group"
+      >
+        <div className="relative flex items-center justify-center">
+          <img
+            src="/chess_cure_logo.jpg"
+            alt="ChessCure Logo"
+            className="w-9 h-9 sm:w-10 sm:h-10 object-contain rounded-xl shadow-md border border-amber-500/30 group-hover:scale-105 transition-transform duration-300 drop-shadow-[0_0_10px_rgba(245,158,11,0.35)]"
+          />
+        </div>
+        <div className="text-2xl font-bold tracking-tight text-white flex items-center">
+          Chess<span className="text-[#e5a93c]">Cure</span>
+        </div>
+      </div>
       {/* Background artwork */}
       <div className="absolute inset-0 z-0 pointer-events-none">
         {CHESS_REGISTER_BG && (
