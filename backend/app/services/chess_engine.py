@@ -1,52 +1,111 @@
+import random
+
 import chess
 
 
 class ChessEngine:
-    def __init__(self):
-        self.board = chess.Board()
 
-    def get_fen(self):
-        return self.board.fen()
+    @staticmethod
+    def get_legal_moves(board: chess.Board):
+        return list(board.legal_moves)
 
-    def get_turn(self):
-        return "white" if self.board.turn == chess.WHITE else "black"
+    @staticmethod
+    def easy_move(board: chess.Board):
+        legal_moves = ChessEngine.get_legal_moves(board)
 
-    def is_game_over(self):
-        return self.board.is_game_over()
+        if not legal_moves:
+            return None
 
-    def make_move(self, move_text: str):
-        try:
-            move = chess.Move.from_uci(move_text)
-        except ValueError:
-            return {
-                "success": False,
-                "message": "Invalid move format. Use format like e2e4."
-            }
+        return random.choice(legal_moves)
 
-        if move not in self.board.legal_moves:
-            return {
-                "success": False,
-                "message": "Illegal chess move."
-            }
+    @staticmethod
+    def medium_move(board: chess.Board):
+        legal_moves = ChessEngine.get_legal_moves(board)
 
-        self.board.push(move)
+        if not legal_moves:
+            return None
 
-        return {
-            "success": True,
-            "message": "Move accepted.",
-            "move": move_text,
-            "fen": self.get_fen(),
-            "turn": self.get_turn(),
-            "game_over": self.is_game_over()
+        # Prefer capturing a piece
+        capture_moves = [
+            move for move in legal_moves
+            if board.is_capture(move)
+        ]
+
+        if capture_moves:
+            return random.choice(capture_moves)
+
+        return random.choice(legal_moves)
+
+    @staticmethod
+    def evaluate_board(board: chess.Board):
+        piece_values = {
+            chess.PAWN: 1,
+            chess.KNIGHT: 3,
+            chess.BISHOP: 3,
+            chess.ROOK: 5,
+            chess.QUEEN: 9,
+            chess.KING: 100,
         }
 
-    def reset(self):
-        self.board.reset()
+        score = 0
 
-        return {
-            "success": True,
-            "message": "Game reset.",
-            "fen": self.get_fen(),
-            "turn": self.get_turn(),
-            "game_over": self.is_game_over()
-        }
+        for piece_type, value in piece_values.items():
+            score += len(board.pieces(piece_type, chess.WHITE)) * value
+            score -= len(board.pieces(piece_type, chess.BLACK)) * value
+
+        return score
+
+    @staticmethod
+    def hard_move(board: chess.Board):
+        legal_moves = ChessEngine.get_legal_moves(board)
+
+        if not legal_moves:
+            return None
+
+        best_move = None
+
+        if board.turn == chess.WHITE:
+            best_score = float("-inf")
+
+            for move in legal_moves:
+                board.push(move)
+                score = ChessEngine.evaluate_board(board)
+                board.pop()
+
+                if score > best_score:
+                    best_score = score
+                    best_move = move
+
+        else:
+            best_score = float("inf")
+
+            for move in legal_moves:
+                board.push(move)
+                score = ChessEngine.evaluate_board(board)
+                board.pop()
+
+                if score < best_score:
+                    best_score = score
+                    best_move = move
+
+        return best_move
+
+    @staticmethod
+    def get_computer_move(
+        board: chess.Board,
+        difficulty: str = "easy",
+    ):
+        difficulty = difficulty.lower()
+
+        if difficulty == "easy":
+            return ChessEngine.easy_move(board)
+
+        if difficulty == "medium":
+            return ChessEngine.medium_move(board)
+
+        if difficulty == "hard":
+            return ChessEngine.hard_move(board)
+
+        raise ValueError(
+            "Difficulty must be easy, medium, or hard"
+        ) 

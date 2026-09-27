@@ -1,13 +1,26 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import chess
-import random
+
+from app.routers import games
+from app.routers import challenges
+from app.services.chess_engine import ChessEngine
+
 
 app = FastAPI(
     title="Chess Cure API",
-    description="Backend API for Chess Cure",
-    version="1.0.0"
+    description="Chess Cure Backend API",
+    version="1.0.0",
 )
+
+
+# Chess game routers
+app.include_router(games.router)
+app.include_router(challenges.router)
+
+
+# Simple chess board
+board = chess.Board()
 
 
 class MoveRequest(BaseModel):
@@ -15,14 +28,12 @@ class MoveRequest(BaseModel):
     to_square: str
 
 
-# Create a new chess board
-board = chess.Board()
-
-
 @app.get("/")
-def home():
+def root():
     return {
-        "message": "Chess Cure Backend is Running!"
+        "success": True,
+        "message": "Chess Cure Backend is Running!",
+        "version": "1.0.0",
     }
 
 
@@ -30,7 +41,7 @@ def home():
 def health_check():
     return {
         "success": True,
-        "message": "Chess Cure API is healthy"
+        "message": "Chess Cure API is healthy",
     }
 
 
@@ -39,76 +50,67 @@ def get_board():
     return {
         "success": True,
         "fen": board.fen(),
-        "game_over": board.is_game_over()
+        "turn": (
+            "white"
+            if board.turn == chess.WHITE
+            else "black"
+        ),
+        "game_over": board.is_game_over(),
     }
 
 
 @app.post("/api/move")
-def make_move(move: MoveRequest):
-
-    global board
+def make_simple_move(request: MoveRequest):
 
     try:
-        # Create player's chess move
-        player_move = chess.Move.from_uci(
-            move.from_square + move.to_square
+        move = chess.Move.from_uci(
+            request.from_square + request.to_square
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid chess move format",
         )
 
-        # Check whether player's move is legal
-        if player_move not in board.legal_moves:
-            return {
-                "success": False,
-                "message": "Illegal chess move",
-                "fen": board.fen()
-            }
+    if move not in board.legal_moves:
+        raise HTTPException(
+            status_code=400,
+            detail="Illegal chess move",
+        )
 
-        # Make player's move
-        board.push(player_move)
+    player_move = move.uci()
 
-        # Check if game ended after player's move
-        if board.is_game_over():
-            return {
-                "success": True,
-                "player_move": player_move.uci(),
-                "computer_move": None,
-                "fen": board.fen(),
-                "game_over": True,
-                "result": board.result()
-            }
+    board.push(move)
 
-        # Get all legal computer moves
-        legal_moves = list(board.legal_moves)
+    computer_move = None
 
-        # Select a random legal computer move
-        computer_move = random.choice(legal_moves)
+    if not board.is_game_over():
 
-        # Make computer move
-        board.push(computer_move)
+        computer_move = ChessEngine.get_computer_move(
+            board,
+            "easy",
+        )
 
-        return {
-            "success": True,
-            "player_move": player_move.uci(),
-            "computer_move": computer_move.uci(),
-            "fen": board.fen(),
-            "game_over": board.is_game_over()
-        }
-
-    except Exception as e:
-        return {
-            "success": False,
-            "message": str(e)
-        }
-
-
-@app.post("/api/reset")
-def reset_game():
-
-    global board
-
-    board = chess.Board()
+        if computer_move is not None:
+            board.push(computer_move)
+            computer_move = computer_move.uci()
 
     return {
         "success": True,
-        "message": "Chess game reset successfully",
-        "fen": board.fen()
+        "player_move": player_move,
+        "computer_move": computer_move,
+        "fen": board.fen(),
+        "game_over": board.is_game_over(),
+    }
+
+
+@app.post("/api/reset")
+def reset_board():
+
+    board.reset()
+
+    return {
+        "success": True,
+        "message": "Chess board reset successfully",
+        "fen": board.fen(),
     }
