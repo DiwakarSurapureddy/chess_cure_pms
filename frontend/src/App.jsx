@@ -11,6 +11,8 @@ import ForgotPassword from './pages/ForgotPassword';
 import { Swords, X, Volume2, Shield, Palette } from 'lucide-react';
 
 function AppContent() {
+  const { user } = useAuth();
+  // When opening the project, first page visible is the sign in page
   const [currentView, setCurrentView] = useState('login'); // 'login' | 'signup' | 'forgot-password' | 'home' | 'play' | 'challenges' | 'profile' | 'settings'
   const [selectedGameMode, setSelectedGameMode] = useState('computer');
   const [onlineModalOpen, setOnlineModalOpen] = useState(false);

@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import ChessBoard from '../components/chess/ChessBoard';
 import { useAuth } from '../context/AuthContext';
-import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X } from 'lucide-react';
+import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X, Crown } from 'lucide-react';
 
 export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   const { recordGameResult } = useAuth();
   const [mode, setMode] = useState(initialMode);
   const [aiLevel, setAiLevel] = useState('intermediate');
+  const [selectedSide, setSelectedSide] = useState('w'); // 'w' | 'b'
   const [secretUnlocked, setSecretUnlocked] = useState(false);
   const [showSecretModal, setShowSecretModal] = useState(false);
 
@@ -37,45 +38,77 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   return (
     <div className="w-full max-w-6xl mx-auto px-4 py-6 space-y-6">
       {/* Top Game Controls Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl bg-[#0c1424] border border-slate-800 shadow-lg">
-        {/* Mode Selector */}
+      <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-3xl bg-[#0c1424] border border-[#d4af37]/35 shadow-xl">
+        
+        {/* Left: Mode Selector */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => setMode('computer')}
-            className={`py-2 px-3.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
+            className={`py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
               mode === 'computer'
-                ? 'bg-[#e5a93c] text-black shadow-md shadow-amber-500/20'
+                ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-md shadow-amber-500/20'
                 : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
             }`}
           >
-            <Bot className="w-3.5 h-3.5" />
+            <Bot className="w-4 h-4" />
             <span>vs Computer</span>
           </button>
 
           <button
             onClick={() => setMode('two-player')}
-            className={`py-2 px-3.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
+            className={`py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
               mode === 'two-player'
-                ? 'bg-[#e5a93c] text-black shadow-md shadow-amber-500/20'
+                ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-md shadow-amber-500/20'
                 : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
             }`}
           >
-            <Users className="w-3.5 h-3.5" />
+            <Users className="w-4 h-4" />
             <span>Play vs Friends</span>
           </button>
         </div>
 
-        {/* AI Difficulty Selector (when vs Computer) */}
+        {/* Center: White or Black Side Selector (User Request) */}
+        <div className="flex items-center gap-1.5 bg-[#070b14] p-1.5 rounded-2xl border border-[#d4af37]/30 shadow-inner">
+          <span className="text-[11px] text-amber-300/80 font-bold px-2">Play As:</span>
+          
+          <button
+            onClick={() => setSelectedSide('w')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all ${
+              selectedSide === 'w'
+                ? 'bg-gradient-to-r from-amber-200 to-amber-400 text-black shadow-lg shadow-amber-500/30 ring-1 ring-amber-200'
+                : 'text-slate-400 hover:text-white'
+            }`}
+            title="Play as White (You move first)"
+          >
+            <span>♔</span>
+            <span>White</span>
+          </button>
+
+          <button
+            onClick={() => setSelectedSide('b')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all ${
+              selectedSide === 'b'
+                ? 'bg-gradient-to-r from-slate-800 to-slate-950 text-white border border-amber-400 shadow-lg shadow-amber-500/30 ring-1 ring-amber-400'
+                : 'text-slate-400 hover:text-white'
+            }`}
+            title="Play as Black (Engine moves first, board flipped)"
+          >
+            <span>♚</span>
+            <span>Black</span>
+          </button>
+        </div>
+
+        {/* Right: AI Difficulty Selector (when vs Computer) */}
         {mode === 'computer' && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 font-medium">Difficulty:</span>
+          <div className="flex items-center gap-1.5 bg-[#070b14] p-1.5 rounded-2xl border border-slate-800">
+            <span className="text-[11px] text-slate-400 font-semibold px-1.5">AI Level:</span>
             {['beginner', 'intermediate', 'master'].map((lvl) => (
               <button
                 key={lvl}
                 onClick={() => setAiLevel(lvl)}
-                className={`py-1.5 px-3 rounded-lg text-[11px] font-bold capitalize transition-colors ${
+                className={`py-1 px-2.5 rounded-lg text-[11px] font-bold capitalize transition-colors ${
                   aiLevel === lvl
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -97,16 +130,17 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
         )}
       </div>
 
-      {/* Main Playable Chessboard */}
+      {/* Main Playable Chessboard with selected side and mode */}
       <ChessBoard
-        key={mode}
+        key={`${mode}-${selectedSide}`}
         gameMode={mode}
         aiDifficulty={aiLevel}
+        initialPlayerColor={selectedSide}
         onSecretMoveDetected={handleSecretMove}
         onGameOver={handleGameOver}
       />
 
-      {/* Secret Chat Modal / Teaser */}
+      {/* Secret Chat Modal */}
       {showSecretModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-lg rounded-3xl bg-[#0e1728] border border-amber-400/80 p-6 shadow-[0_0_40px_rgba(229,169,60,0.25)] space-y-4">

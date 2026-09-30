@@ -17,11 +17,13 @@ import {
   Clock,
   Swords,
   Flame,
-  LogIn
+  LogIn,
+  Settings,
+  LogOut
 } from 'lucide-react';
 
 export default function Profile({ onNavigate }) {
-  const { user, careerGames = [] } = useAuth();
+  const { user, careerGames = [], logout } = useAuth();
 
   if (!user) {
     return (
@@ -50,13 +52,20 @@ export default function Profile({ onNavigate }) {
   const skill = user.skill || 'Club Player (Intermediate)';
   const initial = username ? username[0].toUpperCase() : 'G';
 
-  const totalGames = (user.wins || 0) + (user.losses || 0) + (user.draws || 0);
-  const winRate = totalGames > 0 ? Math.round((user.wins / totalGames) * 100) : 64;
+  const winsCount = user.wins ?? 84;
+  const lossesCount = user.losses ?? 41;
+  const drawsCount = user.draws ?? 9;
+  const totalGames = (user.wins !== undefined && user.losses !== undefined && user.draws !== undefined)
+    ? (user.wins + user.losses + user.draws)
+    : 134;
+  const winRate = totalGames > 0 ? Math.round((winsCount / totalGames) * 100) : 63;
+  const lossRate = totalGames > 0 ? Math.round((lossesCount / totalGames) * 100) : 31;
+  const drawRate = totalGames > 0 ? Math.round((drawsCount / totalGames) * 100) : 7;
 
   return (
     <div className="relative min-h-[calc(100vh-80px)] py-10 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto w-full animate-fade-in space-y-8">
       {/* Top Navigation Row */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           onClick={() => onNavigate && onNavigate('home')}
           className="inline-flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors cursor-pointer px-3 py-1.5 rounded-xl bg-slate-900/60 border border-slate-800 hover:border-slate-700"
@@ -65,9 +74,34 @@ export default function Profile({ onNavigate }) {
           <span>Back to Arena</span>
         </button>
 
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Active PMS Clinical Account</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Settings Shortcut Button */}
+          <button
+            onClick={() => onNavigate && onNavigate('settings')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/70 border border-slate-800 hover:border-amber-500/50 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer"
+            title="Open Platform Settings"
+          >
+            <Settings className="w-3.5 h-3.5 text-amber-400" />
+            <span>Settings</span>
+          </button>
+
+          {/* Sign Out Shortcut Button */}
+          <button
+            onClick={() => {
+              logout();
+              if (onNavigate) onNavigate('login');
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 hover:bg-rose-500/20 text-xs font-semibold text-rose-300 hover:text-rose-200 transition-colors cursor-pointer"
+            title="Sign Out of Account"
+          >
+            <LogOut className="w-3.5 h-3.5 text-rose-400" />
+            <span>Sign Out</span>
+          </button>
+
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Active PMS Clinical Account</span>
+          </div>
         </div>
       </div>
 
@@ -149,46 +183,46 @@ export default function Profile({ onNavigate }) {
         </div>
       </div>
 
-      {/* Diagnostics / Performance Grid */}
+      {/* Career Metrics: Total Games, Wins, Losses, Draws (Replaced Cognitive Index, Tactics Solved, Blunder Avoidance, Record) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 rounded-2xl bg-[#0c1424] border border-slate-800 space-y-1">
+        {/* 1. Total Games */}
+        <div className="p-4 rounded-2xl bg-[#0c1424] border border-slate-800 space-y-1 hover:border-amber-500/40 transition-colors">
           <div className="flex items-center justify-between text-slate-400 text-xs font-semibold">
-            <span>Cognitive Index</span>
+            <span>Total Games</span>
             <Activity className="w-4 h-4 text-amber-400" />
           </div>
-          <p className="text-2xl font-black text-white">96.8%</p>
-          <p className="text-[11px] text-emerald-400 font-medium">+3.2% latency speed</p>
+          <p className="text-2xl font-black text-white">{totalGames}</p>
+          <p className="text-[11px] text-amber-400 font-medium">{winRate}% overall win rate</p>
         </div>
 
-        <div className="p-4 rounded-2xl bg-[#0c1424] border border-slate-800 space-y-1">
+        {/* 2. Wins */}
+        <div className="p-4 rounded-2xl bg-[#0c1424] border border-slate-800 space-y-1 hover:border-emerald-500/40 transition-colors">
           <div className="flex items-center justify-between text-slate-400 text-xs font-semibold">
-            <span>Tactics Solved</span>
-            <Brain className="w-4 h-4 text-amber-400" />
+            <span>Wins</span>
+            <Trophy className="w-4 h-4 text-emerald-400" />
           </div>
-          <p className="text-2xl font-black text-amber-400">{user.puzzlesSolved || 388}</p>
-          <p className="text-[11px] text-slate-400">14 solved this week</p>
+          <p className="text-2xl font-black text-emerald-400">{winsCount}</p>
+          <p className="text-[11px] text-emerald-400 font-medium">Ranked & practice victories</p>
         </div>
 
-        <div className="p-4 rounded-2xl bg-[#0c1424] border border-slate-800 space-y-1">
+        {/* 3. Losses / Loosers */}
+        <div className="p-4 rounded-2xl bg-[#0c1424] border border-slate-800 space-y-1 hover:border-rose-500/40 transition-colors">
           <div className="flex items-center justify-between text-slate-400 text-xs font-semibold">
-            <span>Blunder Avoidance</span>
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <span>Losses</span>
+            <ArrowDownRight className="w-4 h-4 text-rose-400" />
           </div>
-          <p className="text-2xl font-black text-white">92.4%</p>
-          <p className="text-[11px] text-emerald-400 font-medium">Grandmaster standard</p>
+          <p className="text-2xl font-black text-rose-400">{lossesCount}</p>
+          <p className="text-[11px] text-rose-400/90 font-medium">{lossRate}% defeat rate</p>
         </div>
 
-        <div className="p-4 rounded-2xl bg-[#0c1424] border border-slate-800 space-y-1">
+        {/* 4. Draws */}
+        <div className="p-4 rounded-2xl bg-[#0c1424] border border-slate-800 space-y-1 hover:border-amber-500/40 transition-colors">
           <div className="flex items-center justify-between text-slate-400 text-xs font-semibold">
-            <span>Record (W/L/D)</span>
-            <Swords className="w-4 h-4 text-amber-400" />
+            <span>Draws</span>
+            <Award className="w-4 h-4 text-amber-300" />
           </div>
-          <p className="text-sm font-bold text-slate-300 mt-2">
-            <span className="text-emerald-400">{user.wins || 82}W</span> /{' '}
-            <span className="text-rose-400">{user.losses || 42}L</span> /{' '}
-            <span className="text-slate-400">{user.draws || 8}D</span>
-          </p>
-          <p className="text-[11px] text-emerald-400 font-medium">{winRate}% win rate</p>
+          <p className="text-2xl font-black text-amber-300">{drawsCount}</p>
+          <p className="text-[11px] text-slate-400 font-medium">{drawRate}% stalemates</p>
         </div>
       </div>
 

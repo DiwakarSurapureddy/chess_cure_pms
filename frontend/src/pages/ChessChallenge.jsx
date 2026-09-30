@@ -3,6 +3,7 @@ import { Chess } from 'chess.js';
 import { Award, Zap, Shuffle, CheckCircle2, HelpCircle, ArrowRight, Trophy, Flame } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../context/AuthContext';
+import ChessPiece from '../components/chess/ChessPiece';
 
 const CHALLENGES_DATABASE = {
   easy: [
@@ -267,34 +268,32 @@ export default function ChessChallenge() {
                       onClick={() => handleSquareClick(rIdx, cIdx)}
                       className={`w-11 h-11 sm:w-14 sm:h-14 md:w-16 md:h-16 flex items-center justify-center relative cursor-pointer select-none ${
                         isSelected
-                          ? 'bg-amber-500/60'
+                          ? 'bg-amber-400/60 ring-2 ring-inset ring-amber-300'
                           : isLight
-                          ? 'bg-[#22334d]'
-                          : 'bg-[#0e1726]'
+                          ? 'bg-[#ebd7b6] hover:bg-[#f3dfbf]'
+                          : 'bg-[#272b34] hover:bg-[#2e3440]'
                       }`}
                     >
                       {/* Legal Move Dot */}
                       {isLegal && (
                         <div
-                          className={`absolute rounded-full pointer-events-none ${
+                          className={`absolute rounded-full pointer-events-none z-20 ${
                             piece
                               ? 'w-full h-full border-4 border-amber-400/80'
-                              : 'w-3.5 h-3.5 bg-amber-400/80 shadow-[0_0_8px_rgba(229,169,60,0.8)]'
+                              : 'w-3.5 h-3.5 bg-amber-400/90 shadow-[0_0_8px_rgba(229,169,60,0.8)]'
                           }`}
                         />
                       )}
 
-                      {/* Piece */}
+                      {/* 3D Piece */}
                       {piece && (
-                        <span
-                          className={`text-3xl sm:text-4xl md:text-5xl transition-transform hover:scale-110 ${
-                            piece.color === 'w'
-                              ? 'text-amber-100 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]'
-                              : 'text-slate-900 drop-shadow-[0_0_2px_rgba(255,255,255,0.4)]'
-                          }`}
-                        >
-                          {PIECE_SYMBOLS[piece.type]?.[piece.color]}
-                        </span>
+                        <div className="w-full h-full p-0.5 sm:p-1 flex items-center justify-center z-10">
+                          <ChessPiece
+                            type={piece.type}
+                            color={piece.color}
+                            className="w-9 h-9 sm:w-12 sm:h-12 md:w-14 md:h-14 hover:scale-105"
+                          />
+                        </div>
                       )}
                     </div>
                   );

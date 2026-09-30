@@ -14,13 +14,27 @@ const DEFAULT_CAREER_GAMES = [
   { id: 'g-104', opponent: 'Guest_7841', mode: 'Two Players', result: 'Won', method: 'Checkmate', moves: 19, ratingChange: '+8', date: '1 week ago' },
 ];
 
+export const DEFAULT_ACTIVE_USER = {
+  id: 'usr_grandmaster',
+  username: 'Grandmaster',
+  email: 'grandmaster@chesscure.com',
+  rating: 1540,
+  skill: 'Club Player (Intermediate)',
+  title: 'Tactical Aspirant',
+  wins: 84,
+  losses: 41,
+  draws: 9,
+  puzzlesSolved: 342,
+  isGuest: false,
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try {
       const saved = localStorage.getItem(USER_KEY) || localStorage.getItem('cc_auth_user');
-      return saved ? JSON.parse(saved) : null;
+      return saved ? JSON.parse(saved) : DEFAULT_ACTIVE_USER;
     } catch {
-      return null;
+      return DEFAULT_ACTIVE_USER;
     }
   });
 
