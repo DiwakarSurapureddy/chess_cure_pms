@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "server": "node server/server.js",
+    "backend": "uvicorn main:app --reload --port 8000 --app-dir backend",
     "frontend": "npm --prefix frontend run dev",
-    "dev": "node server/server.js & npm --prefix frontend run dev"
+    "dev": "npm --prefix frontend run dev"
   }
 }

@@ -95,6 +95,48 @@ export const api = {
       return { success: true };
     }
   },
+
+  /**
+   * Authenticate via Google
+   */
+  async loginWithGoogle(payload = {}) {
+    const res = await fetch(`${BASE_URL}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Google login failed.');
+    return data;
+  },
+
+  /**
+   * Authenticate via Facebook
+   */
+  async loginWithFacebook(payload = {}) {
+    const res = await fetch(`${BASE_URL}/auth/facebook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Facebook login failed.');
+    return data;
+  },
+
+  /**
+   * Instant guest login
+   */
+  async continueAsGuest(payload = {}) {
+    const res = await fetch(`${BASE_URL}/auth/guest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Guest login failed.');
+    return data;
+  },
 };
 
 export default api;

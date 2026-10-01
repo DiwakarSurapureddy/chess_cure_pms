@@ -194,62 +194,57 @@ export function AuthProvider({ children }) {
   };
 
   // Social Login: Google
-  const loginWithGoogle = () => {
-    const newUser = {
-      id: 'goog_' + Date.now(),
-      username: 'Google Player',
-      email: 'player@gmail.com',
-      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
-      isGuest: false,
-      rating: 1500,
-      title: 'Club Player',
-      wins: 15,
-      losses: 7,
-      draws: 2,
-      puzzlesSolved: 84,
-    };
-    setUser(newUser);
-    return true;
+  const loginWithGoogle = async () => {
+    try {
+      const res = await api.loginWithGoogle();
+      if (res?.user && res?.token) {
+        setUser(res.user);
+        setToken(res.token);
+        localStorage.setItem(TOKEN_KEY, res.token);
+        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
+        setIsAuthenticated(true);
+      }
+      return true;
+    } catch (e) {
+      console.warn('Google backend auth fallback:', e);
+      return false;
+    }
   };
 
   // Social Login: Facebook
-  const loginWithFacebook = () => {
-    const newUser = {
-      id: 'fb_' + Date.now(),
-      username: 'Facebook Master',
-      email: 'fb_player@facebook.com',
-      avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=100&auto=format&fit=crop&q=80',
-      isGuest: false,
-      rating: 1480,
-      title: 'Challenger',
-      wins: 20,
-      losses: 12,
-      draws: 4,
-      puzzlesSolved: 110,
-    };
-    setUser(newUser);
-    return true;
+  const loginWithFacebook = async () => {
+    try {
+      const res = await api.loginWithFacebook();
+      if (res?.user && res?.token) {
+        setUser(res.user);
+        setToken(res.token);
+        localStorage.setItem(TOKEN_KEY, res.token);
+        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
+        setIsAuthenticated(true);
+      }
+      return true;
+    } catch (e) {
+      console.warn('Facebook backend auth fallback:', e);
+      return false;
+    }
   };
 
   // Guest Mode
-  const continueAsGuest = () => {
-    const guestNumber = Math.floor(1000 + Math.random() * 9000);
-    const guestUser = {
-      id: 'guest_' + Date.now(),
-      username: `Guest #${guestNumber}`,
-      identifier: `guest_${guestNumber}@chesscure.guest`,
-      email: `guest_${guestNumber}@chesscure.guest`,
-      avatar: null,
-      isGuest: true,
-      rating: 1200,
-      title: 'Casual Guest',
-      wins: 0,
-      losses: 0,
-      draws: 0,
-      puzzlesSolved: 0,
-    };
-    setUser(guestUser);
-    return true;
+  const continueAsGuest = async () => {
+    try {
+      const res = await api.continueAsGuest();
+      if (res?.user && res?.token) {
+        setUser(res.user);
+        setToken(res.token);
+        localStorage.setItem(TOKEN_KEY, res.token);
+        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
+        setIsAuthenticated(true);
+      }
+      return true;
+    } catch (e) {
+      console.warn('Guest backend auth fallback:', e);
+      return false;
+    }
   };
 
   const logout = async () => {
