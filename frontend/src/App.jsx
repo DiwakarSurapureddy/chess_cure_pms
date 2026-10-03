@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SecretChatProvider } from './context/SecretChatContext';
+import SecretChatModal from './components/chat/SecretChatModal';
 import Navbar from './components/layout/Navbar';
 import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
@@ -34,11 +36,20 @@ function AppContent() {
 
   const isAuthView = currentView === 'login' || currentView === 'signup' || currentView === 'forgot-password';
 
+  const handleTabChange = (tab) => {
+    if (tab === 'chat') {
+      // Secret chat modal will open via context; if in auth view, bring user to play view
+      if (isAuthView) setCurrentView('play');
+      return;
+    }
+    setCurrentView(tab);
+  };
+
   return (
     <div className="min-h-screen bg-[#080c14] text-white flex flex-col justify-between selection:bg-amber-500/30 selection:text-amber-200">
       {/* Header Navigation */}
       {!isAuthView && (
-        <Navbar activeTab={currentView} onTabChange={(tab) => setCurrentView(tab)} />
+        <Navbar activeTab={currentView} onTabChange={handleTabChange} />
       )}
 
       {/* Main Page Routing */}
@@ -154,6 +165,9 @@ function AppContent() {
           </div>
         </div>
       )}
+
+      {/* Secret Chat Modal (In Dimensions of Chessboard, Bigger & Limited Time) */}
+      <SecretChatModal onNavigate={(tab) => setCurrentView(tab)} />
     </div>
   );
 }
@@ -161,7 +175,9 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <SecretChatProvider>
+        <AppContent />
+      </SecretChatProvider>
     </AuthProvider>
   );
 }

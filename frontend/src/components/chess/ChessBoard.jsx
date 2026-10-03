@@ -135,6 +135,19 @@ export default function ChessBoard({
       if (moveRes) {
         setLastMove({ from: moveRes.from, to: moveRes.to });
         if (soundEnabled) playChessSound(moveRes.captured ? 'capture' : 'move');
+
+        // Secret Trigger: Opponent captures at least one piece within 5 moves
+        const aiMoveNumber = Math.ceil(currentChess.history().length / 2);
+        if (!secretDiscovered && moveRes.captured && aiMoveNumber <= 5) {
+          setSecretDiscovered(true);
+          confetti({ particleCount: 110, spread: 80, origin: { y: 0.6 } });
+          if (onSecretMoveDetected) {
+            onSecretMoveDetected({
+              ...moveRes,
+              reason: `Opponent captured a piece on move ${aiMoveNumber}!`
+            });
+          }
+        }
       }
       refreshBoard();
       setIsAiThinking(false);
@@ -247,12 +260,30 @@ export default function ChessBoard({
           setLastMove({ from: move.from, to: move.to });
           setHintSquare(null);
 
-          // Secret Move Easter Egg: Knight moves to f3/c3 or f6/c6
+          // 1. Secret Trigger: Piece killed within first 5 moves (player captures opponent piece)
+          const moveNumber = Math.ceil(chess.history().length / 2);
+          if (!secretDiscovered && move.captured && moveNumber <= 5) {
+            setSecretDiscovered(true);
+            confetti({ particleCount: 110, spread: 80, origin: { y: 0.6 } });
+            if (onSecretMoveDetected) {
+              onSecretMoveDetected({
+                ...move,
+                reason: `Captured opponent piece on move ${moveNumber}!`
+              });
+            }
+          }
+
+          // 2. Secret Move Easter Egg: Knight moves to f3/c3 or f6/c6
           if (!secretDiscovered && move.piece === 'n') {
             if (['f3', 'c3', 'f6', 'c6'].includes(move.to)) {
               setSecretDiscovered(true);
               confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
-              if (onSecretMoveDetected) onSecretMoveDetected(move);
+              if (onSecretMoveDetected) {
+                onSecretMoveDetected({
+                  ...move,
+                  reason: 'Tactical Knight Easter Egg'
+                });
+              }
             }
           }
 

@@ -64,3 +64,8 @@ npm run dev
 - **Frontend Web App**: [http://localhost:3000](http://localhost:3000)
 
 *(The frontend automatically proxies all `/api` authentication requests to the FastAPI backend at port 8000).*
+
+commands to run backend
+cd ~/projects/chess_cure_pms/backend
+source .venv/bin/activate
+python -m uvicorn main:app --reload --port 8000
