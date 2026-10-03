@@ -1,12 +1,39 @@
 from datetime import datetime, UTC
 from typing import Optional
+import uuid
 
 import chess
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, String, Text, DateTime
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import Column, String, Text, DateTime, Integer, ForeignKey
 
 from app.database import Base
+
+
+class CareerGame(Base):
+    __tablename__ = "career_games"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id"), index=True, nullable=False)
+    opponent = Column(String(100), nullable=False)
+    mode = Column(String(50), default="vs Computer")
+    result = Column(String(20), nullable=False)
+    method = Column(String(50), default="Checkmate")
+    moves = Column(Integer, default=0)
+    rating_change = Column(String(10), default="+0")
+    played_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "opponent": self.opponent,
+            "mode": self.mode,
+            "result": self.result,
+            "method": self.method,
+            "moves": self.moves,
+            "ratingChange": self.rating_change,
+            "date": self.played_at.strftime("%Y-%m-%d %H:%M") if self.played_at else "Recently",
+        }
 
 
 class GameDB(Base):

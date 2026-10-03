@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/layout/Navbar';
 import Landing from './pages/Landing';
@@ -8,103 +8,142 @@ import Profile from './pages/Profile';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
-import { Swords, X, Volume2, Shield, Palette } from 'lucide-react';
+import Settings from './pages/Settings';
+import { Swords, X } from 'lucide-react';
+
+const VIEW_STORAGE_KEY = 'cc_active_view';
+const VALID_VIEWS = ['home', 'play', 'challenges', 'profile', 'settings', 'login', 'signup', 'forgot-password'];
+
+function getInitialView() {
+  try {
+    const hash = window.location.hash.replace('#', '').trim();
+    if (VALID_VIEWS.includes(hash)) return hash;
+
+    const saved = localStorage.getItem(VIEW_STORAGE_KEY);
+    if (saved && VALID_VIEWS.includes(saved)) {
+      return saved;
+    }
+
+    const token = localStorage.getItem('cc_auth_token');
+    if (token) return 'home';
+
+    return 'login';
+  } catch {
+    return 'login';
+  }
+}
 
 function AppContent() {
-  const [currentView, setCurrentView] = useState('home'); // 'home' | 'play' | 'challenges' | 'profile' | 'settings' | 'login' | 'signup' | 'forgot-password'
+  const { user, token } = useAuth();
+  // Persistent active view across page refreshes
+  const [currentView, setCurrentView] = useState(getInitialView);
   const [selectedGameMode, setSelectedGameMode] = useState('computer');
   const [onlineModalOpen, setOnlineModalOpen] = useState(false);
+
+  // Stable navigation function syncing URL hash & localStorage
+  const navigateTo = (view) => {
+    setCurrentView(view);
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, view);
+      window.location.hash = view;
+    } catch {}
+  };
+
+  // Sync state on view changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, currentView);
+      if (window.location.hash.replace('#', '') !== currentView) {
+        window.location.hash = currentView;
+      }
+    } catch {}
+  }, [currentView]);
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '').trim();
+      if (VALID_VIEWS.includes(hash)) {
+        setCurrentView(hash);
+        localStorage.setItem(VIEW_STORAGE_KEY, hash);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // When user is authenticated, redirect away from login/signup views if needed
+  useEffect(() => {
+    if (token && (currentView === 'login' || currentView === 'signup' || currentView === 'forgot-password')) {
+      const savedNonAuth = localStorage.getItem(VIEW_STORAGE_KEY);
+      if (savedNonAuth && !['login', 'signup', 'forgot-password'].includes(savedNonAuth)) {
+        navigateTo(savedNonAuth);
+      } else {
+        navigateTo('home');
+      }
+    }
+  }, [token]);
 
   const handleStartGame = (modeId) => {
     if (modeId === 'online') {
       setOnlineModalOpen(true);
     } else {
       setSelectedGameMode(modeId);
-      setCurrentView('play');
+      navigateTo('play');
     }
   };
 
   const handleOnlineStart = () => {
     setOnlineModalOpen(false);
     setSelectedGameMode('two-player');
-    setCurrentView('play');
+    navigateTo('play');
   };
+
+  const isAuthView = currentView === 'login' || currentView === 'signup' || currentView === 'forgot-password';
 
   return (
     <div className="min-h-screen bg-[#080c14] text-white flex flex-col justify-between selection:bg-amber-500/30 selection:text-amber-200">
       {/* Header Navigation */}
-      <Navbar activeTab={currentView} onTabChange={(tab) => setCurrentView(tab)} />
+      {!isAuthView && (
+        <Navbar activeTab={currentView} onTabChange={(tab) => navigateTo(tab)} />
+      )}
 
       {/* Main Page Routing */}
       <main className="flex-1 flex flex-col justify-center">
         {currentView === 'home' && (
-          <Landing onStartGame={handleStartGame} onNavigate={(tab) => setCurrentView(tab)} />
+          <Landing onStartGame={handleStartGame} onNavigate={(tab) => navigateTo(tab)} />
         )}
 
         {currentView === 'play' && (
-          <Dashboard initialMode={selectedGameMode} onNavigate={(tab) => setCurrentView(tab)} />
+          <Dashboard
+            key={selectedGameMode}
+            initialMode={selectedGameMode}
+            onNavigate={(tab) => navigateTo(tab)}
+          />
         )}
 
         {currentView === 'challenges' && (
-          <ChessChallenge onNavigate={(tab) => setCurrentView(tab)} />
+          <ChessChallenge onNavigate={(tab) => navigateTo(tab)} />
         )}
 
         {currentView === 'profile' && (
-          <Profile onNavigate={(tab) => setCurrentView(tab)} />
+          <Profile onNavigate={(tab) => navigateTo(tab)} />
         )}
 
         {currentView === 'login' && (
-          <Login onNavigate={(tab) => setCurrentView(tab)} />
+          <Login onNavigate={(tab) => navigateTo(tab)} onLoginSuccess={() => navigateTo('home')} />
         )}
 
         {currentView === 'signup' && (
-          <Signup onNavigate={(tab) => setCurrentView(tab)} />
+          <Signup onNavigate={(tab) => navigateTo(tab)} />
         )}
 
         {currentView === 'forgot-password' && (
-          <ForgotPassword onNavigate={(tab) => setCurrentView(tab)} />
+          <ForgotPassword onNavigate={(tab) => navigateTo(tab)} />
         )}
 
         {currentView === 'settings' && (
-          <div className="max-w-2xl mx-auto px-6 py-12 w-full space-y-6 animate-in fade-in">
-            <h2 className="text-3xl font-extrabold text-white">Platform Settings</h2>
-            <div className="space-y-4 rounded-3xl bg-[#0c1424] border border-slate-800 p-6 text-sm">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                <div className="flex items-center gap-3">
-                  <Palette className="w-5 h-5 text-amber-400" />
-                  <div>
-                    <p className="font-semibold text-white">Board Theme</p>
-                    <p className="text-xs text-slate-400">Dark Obsidian & Warm Gold Accent</p>
-                  </div>
-                </div>
-                <span className="px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 text-xs border border-amber-500/30 font-semibold">
-                  Default Active
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                <div className="flex items-center gap-3">
-                  <Volume2 className="w-5 h-5 text-slate-400" />
-                  <div>
-                    <p className="font-semibold text-white">Piece Audio Effects</p>
-                    <p className="text-xs text-slate-400">Play realistic sounds on piece moves and captures</p>
-                  </div>
-                </div>
-                <input type="checkbox" defaultChecked className="w-5 h-5 accent-amber-500 rounded cursor-pointer" />
-              </div>
-
-              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                <div className="flex items-center gap-3">
-                  <Shield className="w-5 h-5 text-slate-400" />
-                  <div>
-                    <p className="font-semibold text-white">Secret Move Notification</p>
-                    <p className="text-xs text-slate-400">Visual confetti and trigger indicator on perfect moves</p>
-                  </div>
-                </div>
-                <input type="checkbox" defaultChecked className="w-5 h-5 accent-amber-500 rounded cursor-pointer" />
-              </div>
-            </div>
-          </div>
+          <Settings onNavigate={(tab) => navigateTo(tab)} />
         )}
       </main>
 

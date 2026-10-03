@@ -131,7 +131,21 @@ export default function Signup({ onNavigate }) {
   };
 
   return (
-    <div className="relative min-h-[calc(100vh-90px)] flex items-center justify-center px-4 py-10 overflow-hidden">
+    <div className="relative min-h-screen flex items-center justify-center px-4 py-16 sm:py-12 overflow-x-hidden">
+      {/* ChessCure Logo fixed at TOP-LEFT corner */}
+      <div
+        onClick={() => onNavigate && onNavigate('login')}
+        className="fixed top-6 left-6 sm:top-8 sm:left-8 z-50 flex items-center gap-3 select-none cursor-pointer group"
+      >
+        <img
+          src="/chess_cure_logo.jpg"
+          alt="ChessCure Logo"
+          className="h-12 w-12 sm:h-14 sm:w-14 aspect-square object-contain rounded-2xl shadow-xl border border-amber-500/20 group-hover:border-amber-400/50 transition-all duration-300 drop-shadow-[0_0_15px_rgba(229,169,60,0.25)]"
+        />
+        <div className="text-2xl font-bold tracking-tight text-white flex items-center">
+          Chess<span className="text-[#e5a93c]">Cure</span>
+        </div>
+      </div>
       {/* Background artwork */}
       <div className="absolute inset-0 z-0 pointer-events-none">
         {CHESS_REGISTER_BG && (
@@ -151,7 +165,7 @@ export default function Signup({ onNavigate }) {
         <div className="text-center space-y-2 mb-6">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 mb-1 shadow-lg shadow-amber-500/10">
             <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M19 22H5a1 1 0 0 1-1-1v-1a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1zM7 16l-.8-2.4A4.002 4.002 0 0 1 7.2 9H9V7.5a2.5 2.5 0 0 1 4.2-1.83 5.48 5.48 0 0 0 1.94 1.15A3.003 3.003 0 0 1 17 9.64V12a4 4 0 0 1-4 4H7zm3.5-6a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
+              <path d="M19 22H5a1 1 0 0 1-1-1v-1a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1zM7 16l-.8-2.4A4.002 4.002 0 0 1 7.2 9H9V7.5a2.5 2.5 0 0 1 4.2-1.83 5.48 5.48 0 0 0 1.94 1.15A3.003 3.003 0 0 1 17 9.64V12a4 4 0 0 1-4 4H7zm3.5-6a1 1 0 1 0 0-2 1 1 0 0 0 0 2z" />
             </svg>
           </div>
           <h2 className="text-2xl font-extrabold text-white tracking-tight">Create Account</h2>
@@ -290,9 +304,8 @@ export default function Signup({ onNavigate }) {
                 {[1, 2, 3, 4].map((bar) => (
                   <div
                     key={bar}
-                    className={`h-1 rounded-full transition-all ${
-                      strength >= bar ? strengthColors[strength] : 'bg-slate-800'
-                    }`}
+                    className={`h-1 rounded-full transition-all ${strength >= bar ? strengthColors[strength] : 'bg-slate-800'
+                      }`}
                   />
                 ))}
               </div>
