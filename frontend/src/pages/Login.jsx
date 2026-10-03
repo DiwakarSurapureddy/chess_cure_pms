@@ -56,19 +56,40 @@ export default function Login({ onNavigate, onLoginSuccess, initialEmail = '' })
     setError('');
   };
 
-  const handleGoogleLogin = () => {
-    loginWithGoogle();
-    if (onNavigate) onNavigate('home');
+  const handleGoogleLogin = async () => {
+    setError('');
+    try {
+      const res = await loginWithGoogle();
+      if (res?.user && onNavigate) onNavigate('home');
+    } catch (err) {
+      setError(err.message || 'Google sign-in failed.');
+    }
   };
 
-  const handleFacebookLogin = () => {
-    loginWithFacebook();
-    if (onNavigate) onNavigate('home');
+  const handleFacebookLogin = async () => {
+    setError('');
+    try {
+      const res = await loginWithFacebook();
+      if (res?.user) {
+        setSuccessMessage(`Welcome, ${res.user.name || res.user.username}!`);
+        setTimeout(() => {
+          if (onLoginSuccess) onLoginSuccess(res.user);
+          if (onNavigate) onNavigate('home');
+        }, 400);
+      }
+    } catch (err) {
+      setError(err.message || 'Facebook sign-in was cancelled or failed.');
+    }
   };
 
-  const handleGuestLogin = () => {
-    continueAsGuest();
-    if (onNavigate) onNavigate('home');
+  const handleGuestLogin = async () => {
+    setError('');
+    try {
+      const res = await continueAsGuest();
+      if (res?.user && onNavigate) onNavigate('home');
+    } catch (err) {
+      setError(err.message || 'Guest session creation failed.');
+    }
   };
 
   return (

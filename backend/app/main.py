@@ -6,8 +6,13 @@ from fastapi.responses import JSONResponse, HTMLResponse
 
 from app.config import settings
 from app.database import engine, Base, SessionLocal
+from app.models.user import User
+from app.models.game import Game
+from app.models.profile import UserPreference
 from app.services.auth_service import seed_default_users
 from app.routers.auth import router as auth_router
+from app.routers.settings import router as settings_router
+from app.routers.profile import router as profile_router
 from app.portal import get_portal_html
 
 def init_db():
@@ -77,6 +82,14 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(auth_router, prefix="/auth")
 
+# Include Settings Router
+app.include_router(settings_router, prefix="/api/settings")
+app.include_router(settings_router, prefix="/settings")
+
+# Include Profile Router
+app.include_router(profile_router, prefix="/api/profile")
+app.include_router(profile_router, prefix="/profile")
+
 @app.get("/api/health")
 @app.get("/health")
 def health_check():
@@ -108,8 +121,9 @@ def api_info():
             "facebook": "POST /api/auth/facebook",
             "guest": "POST /api/auth/guest",
             "me": "GET /api/auth/me",
-            "update_me": "PUT /api/auth/me",
-            "users": "GET /api/auth/users",
-            "delete_user": "DELETE /api/auth/user/{user_id}"
+            "profile_stats": "GET /api/profile/stats",
+            "profile_games": "GET /api/profile/games",
+            "settings_preferences": "GET/PUT /api/settings/preferences",
+            "settings_password": "PUT /api/settings/password",
         }
     }

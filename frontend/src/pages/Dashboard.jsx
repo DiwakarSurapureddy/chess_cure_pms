@@ -4,10 +4,11 @@ import { useAuth } from '../context/AuthContext';
 import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X, Crown } from 'lucide-react';
 
 export default function Dashboard({ initialMode = 'computer', onNavigate }) {
-  const { recordGameResult } = useAuth();
+  const { user, recordGameResult } = useAuth();
   const [mode, setMode] = useState(initialMode);
   const [aiLevel, setAiLevel] = useState('intermediate');
   const [selectedSide, setSelectedSide] = useState('w'); // 'w' | 'b'
+  const [friendName, setFriendName] = useState('Friend');
   const [secretUnlocked, setSecretUnlocked] = useState(false);
   const [showSecretModal, setShowSecretModal] = useState(false);
 
@@ -23,9 +24,13 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   };
 
   const handleGameOver = (resultData) => {
+    const oppName = mode === 'computer'
+      ? `Stockfish AI (${aiLevel})`
+      : (friendName || 'Friend (Player 2)');
+
     recordGameResult({
       id: 'match_' + Date.now(),
-      opponent: mode === 'computer' ? `Stockfish AI (${aiLevel})` : 'Friend (Player 2)',
+      opponent: oppName,
       mode: mode === 'computer' ? 'vs Computer' : 'Play vs Friends',
       result: resultData.result,
       method: resultData.method,
@@ -98,7 +103,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
           </button>
         </div>
 
-        {/* Right: AI Difficulty Selector (when vs Computer) */}
+        {/* Right: AI Difficulty Selector (when vs Computer) or Friend Name (when vs Friend) */}
         {mode === 'computer' && (
           <div className="flex items-center gap-1.5 bg-[#070b14] p-1.5 rounded-2xl border border-slate-800">
             <span className="text-[11px] text-slate-400 font-semibold px-1.5">AI Level:</span>
@@ -118,6 +123,20 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
           </div>
         )}
 
+        {mode === 'two-player' && (
+          <div className="flex items-center gap-2 bg-[#070b14] px-3 py-1.5 rounded-2xl border border-slate-800 text-xs">
+            <User className="w-3.5 h-3.5 text-blue-400" />
+            <span className="text-slate-400 font-semibold">Friend:</span>
+            <input
+              type="text"
+              value={friendName}
+              onChange={(e) => setFriendName(e.target.value)}
+              placeholder="Friend's Name"
+              className="bg-slate-900 border border-slate-700 focus:border-amber-400 text-amber-200 text-xs px-2.5 py-1 rounded-xl outline-none max-w-[130px]"
+            />
+          </div>
+        )}
+
         {/* Secret Chat Indicator Badge */}
         {secretUnlocked && (
           <button
@@ -132,12 +151,15 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
 
       {/* Main Playable Chessboard with selected side and mode */}
       <ChessBoard
-        key={`${mode}-${selectedSide}`}
+        key={`${mode}-${selectedSide}-${friendName}`}
         gameMode={mode}
         aiDifficulty={aiLevel}
         initialPlayerColor={selectedSide}
+        player1Name={user?.username || user?.name || 'Player 1'}
+        player2Name={friendName || 'Friend (Player 2)'}
         onSecretMoveDetected={handleSecretMove}
         onGameOver={handleGameOver}
+        onNavigate={onNavigate}
       />
 
       {/* Secret Chat Modal */}

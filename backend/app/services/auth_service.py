@@ -87,6 +87,19 @@ def seed_default_users(db: Session):
 
     db.commit()
 
+    # Seed initial demo games if not present
+    from app.models.game import Game
+    target_gm = existing_gm or db.query(User).filter(User.email == gm_email).first()
+    if target_gm and db.query(Game).filter(Game.user_id == target_gm.id).count() == 0:
+        demo_games = [
+            Game(user_id=target_gm.id, opponent="Stockfish Engine (Lvl 4)", mode="vs Computer", result="Won", method="Checkmate", moves=32, rating_change="+18"),
+            Game(user_id=target_gm.id, opponent="MagnusFan99", mode="Online Match", result="Won", method="Resignation", moves=24, rating_change="+14"),
+            Game(user_id=target_gm.id, opponent="Alex_Rook", mode="Online Match", result="Lost", method="Time Out", moves=45, rating_change="-11"),
+            Game(user_id=target_gm.id, opponent="Guest_7841", mode="Two Players", result="Won", method="Checkmate", moves=19, rating_change="+8")
+        ]
+        db.add_all(demo_games)
+        db.commit()
+
 def register_user(
     db: Session,
     username: str,
@@ -249,6 +262,12 @@ def facebook_auth(
         db.add(user)
         db.commit()
         db.refresh(user)
+    else:
+        # Link existing user and update avatar if new avatar provided
+        if avatar:
+            user.avatar = avatar
+            db.commit()
+            db.refresh(user)
 
     token = create_access_token(subject=user.id)
     return {
