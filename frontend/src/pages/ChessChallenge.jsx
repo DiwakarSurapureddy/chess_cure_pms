@@ -4,6 +4,7 @@ import { Award, Zap, Shuffle, CheckCircle2, HelpCircle, ArrowRight, Trophy, Flam
 import confetti from 'canvas-confetti';
 import { useAuth } from '../context/AuthContext';
 import ChessPiece from '../components/chess/ChessPiece';
+import api from '../services/api';
 
 const CHALLENGES_DATABASE = {
   easy: [
@@ -132,7 +133,41 @@ export default function ChessChallenge() {
     loadPuzzle(tier, 0);
   };
 
-  const handleRandomChallenge = () => {
+  const handleRandomChallenge = async () => {
+    try {
+      const diffParam = activeTier === 'advance' || activeTier === 'master' ? 'hard' : activeTier === 'difficult' ? 'medium' : 'easy';
+      const res = await api.getRandomChallenge(diffParam);
+      if (res && res.challenge) {
+        const chal = res.challenge;
+        const solutionUci = (chal.solution || '').toLowerCase().trim();
+        const fromSq = solutionUci.slice(0, 2);
+        const toSq = solutionUci.slice(2, 4);
+
+        const newPuzzle = {
+          id: chal.challenge_id || 'chal_backend',
+          title: chal.title || 'Tactical Challenge',
+          description: chal.description || 'Find the decisive move to gain advantage.',
+          fen: chal.fen,
+          solution: { from: fromSq, to: toSq },
+          hint: chal.hint || 'Carefully check hanging pieces and forcing moves.',
+          reward: '+35 Rating',
+        };
+
+        setCurrentPuzzle(newPuzzle);
+        const newChess = new Chess(newPuzzle.fen);
+        setChess(newChess);
+        setBoard(newChess.board());
+        setSelectedSquare(null);
+        setLegalMoves([]);
+        setIsSolved(false);
+        setShowHint(false);
+        setMessage('');
+        return;
+      }
+    } catch (e) {
+      // Smooth fallback to local tactics
+    }
+
     const tiers = ['easy', 'difficult', 'advance', 'master'];
     const randomTier = tiers[Math.floor(Math.random() * tiers.length)];
     const randomIdx = Math.floor(Math.random() * 2);
@@ -141,7 +176,7 @@ export default function ChessChallenge() {
     loadPuzzle(randomTier, randomIdx);
   };
 
-  const handleSquareClick = (rowIndex, colIndex) => {
+  const handleSquareClick = async (rowIndex, colIndex) => {
     if (isSolved) return;
 
     const file = String.fromCharCode(97 + colIndex);
@@ -162,6 +197,12 @@ export default function ChessChallenge() {
         setIsSolved(true);
         setMessage('Brilliant! Challenge Solved!');
         confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+
+        // Inform backend challenge service if challenge_id exists
+        if (currentPuzzle.id && !currentPuzzle.id.startsWith('e') && !currentPuzzle.id.startsWith('d') && !currentPuzzle.id.startsWith('a') && !currentPuzzle.id.startsWith('m')) {
+          api.solveChallenge(currentPuzzle.id, `${selectedSquare}${square}`).catch(() => {});
+        }
+
         recordGameResult({
           id: 'chal_' + Date.now(),
           opponent: `Tactics (${activeTier.toUpperCase()})`,

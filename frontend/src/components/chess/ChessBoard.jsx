@@ -24,6 +24,7 @@ import {
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../context/AuthContext';
 import { playChessSound } from '../../utils/sound';
+import api from '../../services/api';
 
 export { playChessSound };
 
@@ -71,6 +72,7 @@ export default function ChessBoard({
 
   const aiTimeoutRef = useRef(null);
   const prevGameModeRef = useRef(gameMode);
+  const lastPlayerMoveRef = useRef(null);
 
   // Update board state & check game over conditions
   const refreshBoard = () => {
@@ -90,18 +92,19 @@ export default function ChessBoard({
 
       if (gameMode === 'computer') {
         const userWon = winningColor === playerColor;
+        const currentUserName = user?.username || user?.name || 'You';
         if (userWon) {
-          winnerTitle = 'YOU WIN!';
-          winnerName = user?.username || user?.name || 'You';
-          winnerSubtitle = 'Outstanding Checkmate! You defeated Stockfish AI.';
+          winnerTitle = `${currentUserName.toUpperCase()} WINS!`;
+          winnerName = currentUserName;
+          winnerSubtitle = `Outstanding Checkmate! ${currentUserName} defeated Computer.`;
           isUserWin = true;
           try {
             confetti({ particleCount: 140, spread: 85, origin: { y: 0.55 } });
           } catch (e) {}
         } else {
           winnerTitle = 'COMPUTER WINS!';
-          winnerName = `Stockfish AI (${aiDifficulty})`;
-          winnerSubtitle = 'Checkmate! Stockfish Engine won this game.';
+          winnerName = 'Computer';
+          winnerSubtitle = 'Checkmate! Computer won this game.';
           isUserWin = false;
         }
       } else {
@@ -177,9 +180,10 @@ export default function ChessBoard({
     let isUserWin = false;
 
     if (gameMode === 'computer') {
+      const currentUserName = user?.username || user?.name || 'You';
       winnerTitle = 'COMPUTER WINS!';
-      winnerName = `Stockfish AI (${aiDifficulty})`;
-      winnerSubtitle = 'You resigned the match.';
+      winnerName = 'Computer';
+      winnerSubtitle = `${currentUserName} resigned. Computer won this game.`;
       isUserWin = false;
     } else {
       const opposingColor = chess.turn() === 'w' ? 'b' : 'w';
@@ -218,36 +222,64 @@ export default function ChessBoard({
     }
   };
 
-  // AI Move logic
-  const makeAiMove = (currentChess = chess) => {
+  // AI Move logic - integrates with Backend Chess Engine with smooth fallback
+  const makeAiMove = async (currentChess = chess) => {
     if (currentChess.isGameOver()) return;
     setIsAiThinking(true);
 
-    if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
-    aiTimeoutRef.current = setTimeout(() => {
-      const moves = currentChess.moves({ verbose: true });
-      if (moves.length === 0) {
-        setIsAiThinking(false);
-        return;
-      }
+    let backendReplied = false;
 
-      // Choose move: evaluate captures/checks or standard tactical moves
-      let chosenMove = moves[Math.floor(Math.random() * moves.length)];
-      if (aiDifficulty === 'intermediate' || aiDifficulty === 'master') {
-        const captures = moves.filter((m) => m.captured || m.san.includes('+'));
-        if (captures.length > 0) {
-          chosenMove = captures[Math.floor(Math.random() * captures.length)];
+    // 1. Attempt to query Backend Chess Engine (/api/move)
+    if (lastPlayerMoveRef.current) {
+      try {
+        const { from, to } = lastPlayerMoveRef.current;
+        const res = await api.makeEngineMove({ from_square: from, to_square: to });
+        if (res && res.computer_move && typeof res.computer_move === 'string' && res.computer_move.length >= 4) {
+          const cFrom = res.computer_move.slice(0, 2);
+          const cTo = res.computer_move.slice(2, 4);
+          const cPromotion = res.computer_move.length > 4 ? res.computer_move[4] : 'q';
+          const moveRes = currentChess.move({ from: cFrom, to: cTo, promotion: cPromotion });
+          if (moveRes) {
+            backendReplied = true;
+            setLastMove({ from: moveRes.from, to: moveRes.to });
+            if (soundEnabled) playChessSound(moveRes.captured ? 'capture' : 'move');
+            refreshBoard();
+            setIsAiThinking(false);
+            return;
+          }
         }
+      } catch (err) {
+        // Fallback to local evaluation smoothly
       }
+    }
 
-      const moveRes = currentChess.move(chosenMove);
-      if (moveRes) {
-        setLastMove({ from: moveRes.from, to: moveRes.to });
-        if (soundEnabled) playChessSound(moveRes.captured ? 'capture' : 'move');
-      }
-      refreshBoard();
-      setIsAiThinking(false);
-    }, 600);
+    // 2. Local AI fallback (instant & reliable)
+    if (!backendReplied) {
+      if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
+      aiTimeoutRef.current = setTimeout(() => {
+        const moves = currentChess.moves({ verbose: true });
+        if (moves.length === 0) {
+          setIsAiThinking(false);
+          return;
+        }
+
+        let chosenMove = moves[Math.floor(Math.random() * moves.length)];
+        if (aiDifficulty === 'intermediate' || aiDifficulty === 'master') {
+          const captures = moves.filter((m) => m.captured || m.san.includes('+'));
+          if (captures.length > 0) {
+            chosenMove = captures[Math.floor(Math.random() * captures.length)];
+          }
+        }
+
+        const moveRes = currentChess.move(chosenMove);
+        if (moveRes) {
+          setLastMove({ from: moveRes.from, to: moveRes.to });
+          if (soundEnabled) playChessSound(moveRes.captured ? 'capture' : 'move');
+        }
+        refreshBoard();
+        setIsAiThinking(false);
+      }, 500);
+    }
   };
 
   // Reset Game with specific side
@@ -356,6 +388,7 @@ export default function ChessBoard({
           if (soundEnabled) playChessSound(move.captured ? 'capture' : 'move');
           setLastMove({ from: move.from, to: move.to });
           setHintSquare(null);
+          lastPlayerMoveRef.current = { from: move.from, to: move.to };
 
           // Secret Move Easter Egg: Knight moves to f3/c3 or f6/c6
           if (!secretDiscovered && move.piece === 'n') {
@@ -425,7 +458,7 @@ export default function ChessBoard({
                 </span>
               </div>
               <p className="text-xs sm:text-sm font-extrabold text-white leading-tight">
-                {gameMode === 'computer' ? 'Stockfish Engine' : 'Challenger_Pro'}
+                {gameMode === 'computer' ? 'Computer' : (player2Name || 'Challenger_Pro')}
               </p>
             </div>
           </div>
@@ -589,9 +622,9 @@ export default function ChessBoard({
             </div>
             <div>
               <p className="text-xs font-bold text-white leading-none">
-                You ({playerColor === 'w' ? 'White' : 'Black'})
+                {user?.username || user?.name || 'You'} ({playerColor === 'w' ? 'White' : 'Black'})
               </p>
-              <p className="text-[10px] text-amber-400/90 font-mono mt-0.5">Rating: 1540 ELO</p>
+              <p className="text-[10px] text-amber-400/90 font-mono mt-0.5">Rating: {user?.rating || 1200} ELO</p>
             </div>
           </div>
 
@@ -901,7 +934,7 @@ export default function ChessBoard({
             className={`relative w-full max-w-md rounded-3xl p-6 sm:p-8 text-center space-y-6 shadow-2xl transition-all ${
               gameOverModal.isDraw
                 ? 'bg-gradient-to-b from-[#131b2e] via-[#0f1728] to-[#0a0f1d] border-2 border-slate-600 shadow-[0_0_40px_rgba(148,163,184,0.2)]'
-                : gameOverModal.isUserWin || !gameOverModal.winnerName.includes('Stockfish')
+                : gameOverModal.isUserWin || (gameOverModal.winnerName !== 'Computer' && !gameOverModal.winnerName.includes('Stockfish'))
                 ? 'bg-gradient-to-b from-[#0e1a30] via-[#0c1527] to-[#080d1a] border-2 border-amber-400 shadow-[0_0_50px_rgba(245,158,11,0.35)]'
                 : 'bg-gradient-to-b from-[#1f1118] via-[#160c13] to-[#0a0508] border-2 border-rose-500/80 shadow-[0_0_50px_rgba(244,63,94,0.3)]'
             }`}
@@ -921,7 +954,7 @@ export default function ChessBoard({
                 <div className="w-20 h-20 rounded-3xl bg-slate-800/80 border-2 border-slate-600 flex items-center justify-center shadow-lg">
                   <Award className="w-10 h-10 text-slate-300" />
                 </div>
-              ) : gameOverModal.isUserWin || !gameOverModal.winnerName.includes('Stockfish') ? (
+              ) : gameOverModal.isUserWin || (gameOverModal.winnerName !== 'Computer' && !gameOverModal.winnerName.includes('Stockfish')) ? (
                 <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-400/25 to-amber-500/10 border-2 border-amber-400 flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.4)] animate-bounce">
                   <Trophy className="w-10 h-10 text-amber-300 fill-amber-400/30" />
                 </div>
@@ -938,7 +971,7 @@ export default function ChessBoard({
                 className={`text-3xl sm:text-4xl font-black uppercase tracking-tight ${
                   gameOverModal.isDraw
                     ? 'text-slate-200'
-                    : gameOverModal.isUserWin || !gameOverModal.winnerName.includes('Stockfish')
+                    : gameOverModal.isUserWin || (gameOverModal.winnerName !== 'Computer' && !gameOverModal.winnerName.includes('Stockfish'))
                     ? 'text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-amber-100'
                     : 'text-rose-400'
                 }`}

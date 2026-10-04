@@ -90,7 +90,33 @@ def get_user_stats(current_user: User = Depends(get_current_user), db: Session =
         "rating": current_user.rating or 1200,
         "puzzlesSolved": current_user.puzzles_solved or 0,
         "skill": current_user.skill or "intermediate",
-        "title": current_user.title or "Tactical Aspirant"
+        "title": current_user.title or "Tactical Aspirant",
+        "playerId": current_user.player_id or "100001"
+    }
+
+@router.get("/player/{game_id}")
+def get_player_by_game_id(game_id: str, db: Session = Depends(get_db)):
+    """[GET] Look up a player by their 6-digit Game ID to add as friend or challenge."""
+    clean_id = game_id.strip()
+    target_user = db.query(User).filter(User.player_id == clean_id).first()
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Player with Game ID #{clean_id} not found."
+        )
+    return {
+        "success": True,
+        "player": {
+            "id": target_user.id,
+            "username": target_user.username,
+            "playerId": target_user.player_id,
+            "rating": target_user.rating or 1200,
+            "title": target_user.title or "Chess Player",
+            "skill": target_user.skill or "intermediate",
+            "wins": target_user.wins or 0,
+            "losses": target_user.losses or 0,
+            "draws": target_user.draws or 0,
+        }
     }
 
 @router.get("/games", response_model=List[GameResponse])

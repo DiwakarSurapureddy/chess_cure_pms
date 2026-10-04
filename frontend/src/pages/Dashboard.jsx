@@ -25,7 +25,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
 
   const handleGameOver = (resultData) => {
     const oppName = mode === 'computer'
-      ? `Stockfish AI (${aiLevel})`
+      ? 'Computer'
       : (friendName || 'Friend (Player 2)');
 
     recordGameResult({

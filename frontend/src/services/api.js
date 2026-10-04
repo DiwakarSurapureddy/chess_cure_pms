@@ -259,6 +259,92 @@ export const api = {
     if (!res.ok) throw new Error(data.error || 'Password update failed.');
     return data;
   },
+
+  /**
+   * Play move against backend Chess Engine
+   * @param {Object} data { from_square, to_square }
+   */
+  async makeEngineMove({ from_square, to_square }) {
+    const res = await fetch(`${BASE_URL}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_square, to_square }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || 'Failed to make engine move');
+    return data;
+  },
+
+  /**
+   * Create a new match in backend Game Service
+   * @param {Object} data { player1, player2 }
+   */
+  async createBackendGame({ player1 = 'Player', player2 = 'Computer' } = {}) {
+    const res = await fetch(`${BASE_URL}/games`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ player1, player2 }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Failed to create backend game');
+    return data;
+  },
+
+  /**
+   * Play vs Computer through backend game instance
+   * @param {string} gameId
+   * @param {Object} data { from_square, to_square, difficulty }
+   */
+  async playComputerGame(gameId, { from_square, to_square, difficulty = 'easy' }) {
+    const res = await fetch(`${BASE_URL}/games/${gameId}/play-computer?difficulty=${encodeURIComponent(difficulty)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_square, to_square }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Computer move failed');
+    return data;
+  },
+
+  /**
+   * Fetch random challenge from backend
+   * @param {string} difficulty
+   */
+  async getRandomChallenge(difficulty = 'easy') {
+    const res = await fetch(`${BASE_URL}/challenges/random?difficulty=${encodeURIComponent(difficulty)}`, {
+      method: 'POST',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Failed to fetch challenge');
+    return data;
+  },
+
+  /**
+   * Validate challenge solution with backend
+   * @param {string} challengeId
+   * @param {string} move
+   */
+  async solveChallenge(challengeId, move) {
+    const res = await fetch(`${BASE_URL}/challenges/${challengeId}/solve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ move }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || 'Failed to solve challenge');
+    return data;
+  },
+
+  /**
+   * Look up player by Game ID
+   * @param {string} gameId
+   */
+  async getPlayerByGameId(gameId) {
+    const res = await fetch(`${BASE_URL}/profile/player/${encodeURIComponent(gameId)}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || `Player #${gameId} not found`);
+    return data;
+  },
 };
 
 export default api;

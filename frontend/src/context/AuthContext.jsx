@@ -10,12 +10,7 @@ const PREFERENCES_KEY = 'chess_cure_preferences';
 
 const FACEBOOK_APP_ID = '1608757584075667';
 
-const DEFAULT_CAREER_GAMES = [
-  { id: 'g-101', opponent: 'Stockfish Engine (Lvl 4)', mode: 'vs Computer', result: 'Won', method: 'Checkmate', moves: 32, ratingChange: '+18', date: 'Yesterday' },
-  { id: 'g-102', opponent: 'MagnusFan99', mode: 'Online Match', result: 'Won', method: 'Resignation', moves: 24, ratingChange: '+14', date: '3 days ago' },
-  { id: 'g-103', opponent: 'Alex_Rook', mode: 'Online Match', result: 'Lost', method: 'Time Out', moves: 45, ratingChange: '-11', date: '5 days ago' },
-  { id: 'g-104', opponent: 'Guest_7841', mode: 'Two Players', result: 'Won', method: 'Checkmate', moves: 19, ratingChange: '+8', date: '1 week ago' },
-];
+const DEFAULT_CAREER_GAMES = [];
 
 export const DEFAULT_ACTIVE_USER = {
   id: 'usr_grandmaster',
@@ -121,11 +116,10 @@ export function AuthProvider({ children }) {
           // Fetch real games from DB
           try {
             const dbGames = await api.getGameHistory(storedToken);
-            if (Array.isArray(dbGames) && dbGames.length > 0) {
-              setCareerGames(dbGames);
-            }
+            setCareerGames(Array.isArray(dbGames) ? dbGames : []);
           } catch (e) {
             console.warn('Game history load warning:', e.message);
+            setCareerGames([]);
           }
 
           // Fetch preferences
@@ -195,14 +189,14 @@ export function AuthProvider({ children }) {
         // Fetch user's DB games & preferences
         try {
           const games = await api.getGameHistory(res.token);
-          if (Array.isArray(games) && games.length > 0) {
-            setCareerGames(games);
-          }
+          setCareerGames(Array.isArray(games) ? games : []);
           const prefs = await api.getPreferences(res.token);
           if (prefs) {
             setPreferences(prefs);
           }
-        } catch (ignored) {}
+        } catch (ignored) {
+          setCareerGames([]);
+        }
 
         return { success: true, user: res.user };
       }
@@ -226,7 +220,9 @@ export function AuthProvider({ children }) {
         setToken(res.token);
         setUser(res.user);
         setIsAuthenticated(true);
+        setCareerGames([]);
         localStorage.setItem(TOKEN_KEY, res.token);
+        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
       }
       return { success: true, user: res?.user, message: res?.message };
     } catch (err) {
@@ -332,17 +328,50 @@ export function AuthProvider({ children }) {
     });
   };
 
-  // Guest Mode
-  const continueAsGuest = async () => {
+  // Guest Mode - Stored in LocalStorage on this system/browser only
+  const continueAsGuest = () => {
     try {
-      const res = await api.continueAsGuest();
-      if (res?.user && res?.token) {
-        setUser(res.user);
-        setToken(res.token);
-        localStorage.setItem(TOKEN_KEY, res.token);
-        setIsAuthenticated(true);
+      const guestKey = 'chess_cure_guest_user';
+      const guestGamesKey = 'chess_cure_guest_games';
+
+      let guestUser = null;
+      try {
+        const saved = localStorage.getItem(guestKey);
+        if (saved) guestUser = JSON.parse(saved);
+      } catch (e) {}
+
+      if (!guestUser) {
+        guestUser = {
+          id: 'guest_local_' + Date.now(),
+          username: 'Guest Player',
+          name: 'Guest Player',
+          email: 'guest@system.local',
+          isGuest: true,
+          authProvider: 'guest',
+          playerId: '100000',
+          skill: 'beginner',
+          rating: 1000,
+          title: 'Guest Apprentice',
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          puzzlesSolved: 0,
+          createdAt: new Date().toISOString(),
+        };
+        localStorage.setItem(guestKey, JSON.stringify(guestUser));
       }
-      return { success: true, user: res.user };
+
+      let guestGames = [];
+      try {
+        const savedGames = localStorage.getItem(guestGamesKey);
+        if (savedGames) guestGames = JSON.parse(savedGames);
+      } catch (e) {}
+
+      setUser(guestUser);
+      setToken('guest_local_token');
+      setCareerGames(guestGames);
+      setIsAuthenticated(true);
+      return { success: true, user: guestUser };
     } catch (e) {
       setAuthError(e.message || 'Guest login failed.');
       throw e;
@@ -410,15 +439,37 @@ export function AuthProvider({ children }) {
     return await api.changePassword(currentToken, { currentPassword, newPassword });
   };
 
-  // Record game and sync to database
+  // Record game and sync to database or local storage for guest
   const recordGameResult = async (gameData) => {
-    setCareerGames((prev) => [gameData, ...prev]);
+    // 1. Guest mode: save solely in localStorage on this machine
+    if (user?.isGuest || token === 'guest_local_token') {
+      const newGame = {
+        ...gameData,
+        id: gameData.id || `g_${Date.now()}`,
+        date: gameData.date || 'Just now',
+      };
+      const updatedGames = [newGame, ...careerGames];
+      setCareerGames(updatedGames);
+      localStorage.setItem('chess_cure_guest_games', JSON.stringify(updatedGames));
 
-    // Send to backend database
+      const isWin = gameData.result?.toLowerCase() === 'won';
+      const isLoss = gameData.result?.toLowerCase() === 'lost';
+      const updatedGuestUser = {
+        ...user,
+        wins: (user?.wins || 0) + (isWin ? 1 : 0),
+        losses: (user?.losses || 0) + (isLoss ? 1 : 0),
+        draws: (user?.draws || 0) + (!isWin && !isLoss ? 1 : 0),
+      };
+      setUser(updatedGuestUser);
+      localStorage.setItem('chess_cure_guest_user', JSON.stringify(updatedGuestUser));
+      return newGame;
+    }
+
+    // 2. Authenticated user: save in backend DB
     const currentToken = token || localStorage.getItem(TOKEN_KEY);
     if (currentToken) {
       try {
-        await api.recordGame(currentToken, {
+        const res = await api.recordGame(currentToken, {
           opponent: gameData.opponent,
           mode: gameData.mode,
           result: gameData.result,
@@ -426,8 +477,12 @@ export function AuthProvider({ children }) {
           moves: gameData.moves,
           ratingChange: gameData.ratingChange,
         });
+        if (res) {
+          setCareerGames((prev) => [res, ...prev]);
+        }
       } catch (e) {
         console.warn('Backend record game warning:', e.message);
+        setCareerGames((prev) => [gameData, ...prev]);
       }
     }
 

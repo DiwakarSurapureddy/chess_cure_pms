@@ -31,6 +31,7 @@ class GameStatsResponse(BaseModel):
     puzzlesSolved: int
     skill: str
     title: str
+    playerId: Optional[str] = None
 
 class PreferencesUpdateRequest(BaseModel):
     boardTheme: Optional[str] = None
