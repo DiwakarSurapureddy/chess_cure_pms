@@ -16,48 +16,31 @@ import {
   ChevronRight,
   Shield,
   HelpCircle,
-  X
+  X,
+  Trophy,
+  Award,
+  Flag
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { useAuth } from '../../context/AuthContext';
+import { playChessSound } from '../../utils/sound';
+import api from '../../services/api';
 
-// Exported audio helper for piece moves
-export const playChessSound = (type = 'move') => {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    if (type === 'capture') {
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(320, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(140, ctx.currentTime + 0.12);
-      gain.gain.setValueAtTime(0.25, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.12);
-    } else {
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(440, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.08);
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.08);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.08);
-    }
-  } catch (e) {
-    // Audio context may be restricted by browser policy before first interaction
-  }
-};
+export { playChessSound };
 
 export default function ChessBoard({
   gameMode = 'computer', // 'computer' | 'two-player' | 'online'
   aiDifficulty = 'intermediate',
   initialPlayerColor = 'w', // 'w' (White) | 'b' (Black)
+  player1Name,
+  player2Name,
   onSecretMoveDetected,
   onGameOver,
+  onNavigate,
 }) {
+  const { user, preferences } = useAuth();
+  const showInstructions = preferences?.showInstructions ?? true;
+
   const [chess] = useState(() => new Chess());
   const [board, setBoard] = useState(chess.board());
   const [playerColor, setPlayerColor] = useState(initialPlayerColor); // User's chosen side: 'w' or 'b'
@@ -74,8 +57,22 @@ export default function ChessBoard({
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showSideModal, setShowSideModal] = useState(false);
 
+  // Winner Game Over Modal State
+  const [gameOverModal, setGameOverModal] = useState({
+    isOpen: false,
+    winner: null,
+    winnerName: '',
+    title: '',
+    subtitle: '',
+    method: 'Checkmate',
+    isDraw: false,
+    isUserWin: false,
+    moves: 0,
+  });
+
   const aiTimeoutRef = useRef(null);
   const prevGameModeRef = useRef(gameMode);
+  const lastPlayerMoveRef = useRef(null);
 
   // Update board state & check game over conditions
   const refreshBoard = () => {
@@ -84,20 +81,84 @@ export default function ChessBoard({
     setHistory(chess.history());
 
     if (chess.isCheckmate()) {
-      const winner = chess.turn() === 'w' ? 'Black' : 'White';
-      setGameStatus(`Checkmate! ${winner} Wins`);
+      // The side whose turn it is has no legal moves and is in check -> the OTHER side won!
+      const winningColor = chess.turn() === 'w' ? 'b' : 'w';
+      const isWhiteWinner = winningColor === 'w';
+
+      let winnerTitle = '';
+      let winnerName = '';
+      let winnerSubtitle = '';
+      let isUserWin = false;
+
+      if (gameMode === 'computer') {
+        const userWon = winningColor === playerColor;
+        const currentUserName = user?.username || user?.name || 'You';
+        if (userWon) {
+          winnerTitle = `${currentUserName.toUpperCase()} WINS!`;
+          winnerName = currentUserName;
+          winnerSubtitle = `Outstanding Checkmate! ${currentUserName} defeated Computer.`;
+          isUserWin = true;
+          try {
+            confetti({ particleCount: 140, spread: 85, origin: { y: 0.55 } });
+          } catch (e) {}
+        } else {
+          winnerTitle = 'COMPUTER WINS!';
+          winnerName = 'Computer';
+          winnerSubtitle = 'Checkmate! Computer won this game.';
+          isUserWin = false;
+        }
+      } else {
+        // Two-Player / Play vs Friends / Online
+        const p1 = player1Name || user?.username || user?.name || 'Player 1 (White)';
+        const p2 = player2Name || 'Player 2 (Black)';
+        winnerName = isWhiteWinner ? p1 : p2;
+        winnerTitle = `${winnerName.toUpperCase()} WINS!`;
+        winnerSubtitle = `Checkmate! ${winnerName} claimed glorious victory.`;
+        isUserWin = true;
+        try {
+          confetti({ particleCount: 140, spread: 85, origin: { y: 0.55 } });
+        } catch (e) {}
+      }
+
+      setGameOverModal({
+        isOpen: true,
+        winner: winningColor,
+        winnerName,
+        title: winnerTitle,
+        subtitle: winnerSubtitle,
+        method: 'Checkmate',
+        isDraw: false,
+        isUserWin,
+        moves: chess.history().length,
+      });
+
+      setGameStatus(`Checkmate! ${winnerName} Wins`);
+
       if (onGameOver) {
         onGameOver({
-          result: (winner === 'White' && playerColor === 'w') || (winner === 'Black' && playerColor === 'b') ? 'Won' : 'Lost',
+          result: isUserWin ? 'Won' : 'Lost',
+          winnerName,
           method: 'Checkmate',
           moves: chess.history().length,
         });
       }
     } else if (chess.isDraw()) {
+      setGameOverModal({
+        isOpen: true,
+        winner: 'draw',
+        winnerName: 'Stalemate / Draw',
+        title: 'GAME DRAWN!',
+        subtitle: 'Neither side could deliver checkmate. Match drawn.',
+        method: 'Stalemate',
+        isDraw: true,
+        isUserWin: false,
+        moves: chess.history().length,
+      });
       setGameStatus('Draw (Stalemate / 50-move rule)');
       if (onGameOver) {
         onGameOver({
           result: 'Draw',
+          winnerName: 'Draw',
           method: 'Stalemate',
           moves: chess.history().length,
         });
@@ -109,49 +170,116 @@ export default function ChessBoard({
     }
   };
 
-  // AI Move logic
-  const makeAiMove = (currentChess = chess) => {
+  // Resign match
+  const handleResign = () => {
+    if (chess.isGameOver()) return;
+
+    let winnerTitle = '';
+    let winnerName = '';
+    let winnerSubtitle = '';
+    let isUserWin = false;
+
+    if (gameMode === 'computer') {
+      const currentUserName = user?.username || user?.name || 'You';
+      winnerTitle = 'COMPUTER WINS!';
+      winnerName = 'Computer';
+      winnerSubtitle = `${currentUserName} resigned. Computer won this game.`;
+      isUserWin = false;
+    } else {
+      const opposingColor = chess.turn() === 'w' ? 'b' : 'w';
+      const p1 = player1Name || user?.username || user?.name || 'Player 1 (White)';
+      const p2 = player2Name || 'Player 2 (Black)';
+      winnerName = opposingColor === 'w' ? p1 : p2;
+      winnerTitle = `${winnerName.toUpperCase()} WINS!`;
+      winnerSubtitle = `Opponent resigned the match.`;
+      isUserWin = true;
+      try {
+        confetti({ particleCount: 90, spread: 70, origin: { y: 0.55 } });
+      } catch (e) {}
+    }
+
+    setGameOverModal({
+      isOpen: true,
+      winner: winnerName,
+      winnerName,
+      title: winnerTitle,
+      subtitle: winnerSubtitle,
+      method: 'Resignation',
+      isDraw: false,
+      isUserWin,
+      moves: chess.history().length,
+    });
+
+    setGameStatus(`Resignation! ${winnerName} Wins`);
+
+    if (onGameOver) {
+      onGameOver({
+        result: isUserWin ? 'Won' : 'Lost',
+        winnerName,
+        method: 'Resignation',
+        moves: chess.history().length,
+      });
+    }
+  };
+
+  // AI Move logic - integrates with Backend Chess Engine with smooth fallback
+  const makeAiMove = async (currentChess = chess) => {
     if (currentChess.isGameOver()) return;
     setIsAiThinking(true);
 
-    if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
-    aiTimeoutRef.current = setTimeout(() => {
-      const moves = currentChess.moves({ verbose: true });
-      if (moves.length === 0) {
-        setIsAiThinking(false);
-        return;
-      }
+    let backendReplied = false;
 
-      // Choose move: evaluate captures/checks or standard tactical moves
-      let chosenMove = moves[Math.floor(Math.random() * moves.length)];
-      if (aiDifficulty === 'intermediate' || aiDifficulty === 'master') {
-        const captures = moves.filter((m) => m.captured || m.san.includes('+'));
-        if (captures.length > 0) {
-          chosenMove = captures[Math.floor(Math.random() * captures.length)];
-        }
-      }
-
-      const moveRes = currentChess.move(chosenMove);
-      if (moveRes) {
-        setLastMove({ from: moveRes.from, to: moveRes.to });
-        if (soundEnabled) playChessSound(moveRes.captured ? 'capture' : 'move');
-
-        // Secret Trigger: Opponent captures at least one piece within 5 moves
-        const aiMoveNumber = Math.ceil(currentChess.history().length / 2);
-        if (!secretDiscovered && moveRes.captured && aiMoveNumber <= 5) {
-          setSecretDiscovered(true);
-          confetti({ particleCount: 110, spread: 80, origin: { y: 0.6 } });
-          if (onSecretMoveDetected) {
-            onSecretMoveDetected({
-              ...moveRes,
-              reason: `Opponent captured a piece on move ${aiMoveNumber}!`
-            });
+    // 1. Attempt to query Backend Chess Engine (/api/move)
+    if (lastPlayerMoveRef.current) {
+      try {
+        const { from, to } = lastPlayerMoveRef.current;
+        const res = await api.makeEngineMove({ from_square: from, to_square: to });
+        if (res && res.computer_move && typeof res.computer_move === 'string' && res.computer_move.length >= 4) {
+          const cFrom = res.computer_move.slice(0, 2);
+          const cTo = res.computer_move.slice(2, 4);
+          const cPromotion = res.computer_move.length > 4 ? res.computer_move[4] : 'q';
+          const moveRes = currentChess.move({ from: cFrom, to: cTo, promotion: cPromotion });
+          if (moveRes) {
+            backendReplied = true;
+            setLastMove({ from: moveRes.from, to: moveRes.to });
+            if (soundEnabled) playChessSound(moveRes.captured ? 'capture' : 'move');
+            refreshBoard();
+            setIsAiThinking(false);
+            return;
           }
         }
+      } catch (err) {
+        // Fallback to local evaluation smoothly
       }
-      refreshBoard();
-      setIsAiThinking(false);
-    }, 600);
+    }
+
+    // 2. Local AI fallback (instant & reliable)
+    if (!backendReplied) {
+      if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
+      aiTimeoutRef.current = setTimeout(() => {
+        const moves = currentChess.moves({ verbose: true });
+        if (moves.length === 0) {
+          setIsAiThinking(false);
+          return;
+        }
+
+        let chosenMove = moves[Math.floor(Math.random() * moves.length)];
+        if (aiDifficulty === 'intermediate' || aiDifficulty === 'master') {
+          const captures = moves.filter((m) => m.captured || m.san.includes('+'));
+          if (captures.length > 0) {
+            chosenMove = captures[Math.floor(Math.random() * captures.length)];
+          }
+        }
+
+        const moveRes = currentChess.move(chosenMove);
+        if (moveRes) {
+          setLastMove({ from: moveRes.from, to: moveRes.to });
+          if (soundEnabled) playChessSound(moveRes.captured ? 'capture' : 'move');
+        }
+        refreshBoard();
+        setIsAiThinking(false);
+      }, 500);
+    }
   };
 
   // Reset Game with specific side
@@ -166,6 +294,7 @@ export default function ChessBoard({
     setHintSquare(null);
     setIsAiThinking(false);
     setSecretDiscovered(false);
+    setGameOverModal((prev) => ({ ...prev, isOpen: false }));
     setPlayerColor(newSide);
     refreshBoard();
 
@@ -259,31 +388,14 @@ export default function ChessBoard({
           if (soundEnabled) playChessSound(move.captured ? 'capture' : 'move');
           setLastMove({ from: move.from, to: move.to });
           setHintSquare(null);
+          lastPlayerMoveRef.current = { from: move.from, to: move.to };
 
-          // 1. Secret Trigger: Piece killed within first 5 moves (player captures opponent piece)
-          const moveNumber = Math.ceil(chess.history().length / 2);
-          if (!secretDiscovered && move.captured && moveNumber <= 5) {
-            setSecretDiscovered(true);
-            confetti({ particleCount: 110, spread: 80, origin: { y: 0.6 } });
-            if (onSecretMoveDetected) {
-              onSecretMoveDetected({
-                ...move,
-                reason: `Captured opponent piece on move ${moveNumber}!`
-              });
-            }
-          }
-
-          // 2. Secret Move Easter Egg: Knight moves to f3/c3 or f6/c6
+          // Secret Move Easter Egg: Knight moves to f3/c3 or f6/c6
           if (!secretDiscovered && move.piece === 'n') {
             if (['f3', 'c3', 'f6', 'c6'].includes(move.to)) {
               setSecretDiscovered(true);
               confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
-              if (onSecretMoveDetected) {
-                onSecretMoveDetected({
-                  ...move,
-                  reason: 'Tactical Knight Easter Egg'
-                });
-              }
+              if (onSecretMoveDetected) onSecretMoveDetected(move);
             }
           }
 
@@ -346,7 +458,7 @@ export default function ChessBoard({
                 </span>
               </div>
               <p className="text-xs sm:text-sm font-extrabold text-white leading-tight">
-                {gameMode === 'computer' ? 'Stockfish Engine' : 'Challenger_Pro'}
+                {gameMode === 'computer' ? 'Computer' : (player2Name || 'Challenger_Pro')}
               </p>
             </div>
           </div>
@@ -375,6 +487,37 @@ export default function ChessBoard({
           </div>
         </div>
 
+        {/* Dynamic Instruction & Move Guidance Bar (Controlled via Settings: With Instruction / Without Instruction) */}
+        {showInstructions && (
+          <div className="w-full max-w-[500px] sm:max-w-[540px] md:max-w-[580px] mb-2.5 px-3.5 py-2 rounded-2xl bg-[#0f172a]/95 border border-amber-500/40 text-xs shadow-md animate-fade-in flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 text-slate-200 min-w-0">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+              <p className="text-[11px] leading-tight truncate sm:whitespace-normal">
+                {chess.inCheck() ? (
+                  <span className="text-rose-400 font-bold">
+                    ⚠️ INSTRUCTION: Your King is in Check! Protect or move your King to safety.
+                  </span>
+                ) : selectedSquare ? (
+                  <span>
+                    <strong className="text-amber-300">Selected [{selectedSquare.toUpperCase()}]:</strong> Click any green circle to make a legal move, or click the piece again to cancel.
+                  </span>
+                ) : turn === playerColor ? (
+                  <span>
+                    <strong className="text-amber-300">Your Turn:</strong> Click any of your pieces to see highlighted legal moves.
+                  </span>
+                ) : (
+                  <span>
+                    <strong className="text-slate-400">Opponent's Turn:</strong> Waiting for opponent to complete their move...
+                  </span>
+                )}
+              </p>
+            </div>
+            <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 whitespace-nowrap flex-shrink-0">
+              With Instructions
+            </span>
+          </div>
+        )}
+
         {/* ================= 8x8 REALISTIC WOODEN / MARBLE CHESSBOARD ================= */}
         <div className="relative p-2.5 sm:p-3.5 rounded-2xl bg-gradient-to-br from-[#3b2314] via-[#23150c] to-[#120a06] border-[3px] border-[#8a5d3b] shadow-[0_20px_50px_rgba(0,0,0,0.9),0_0_30px_rgba(212,175,55,0.2)]">
           {/* Coordinates Top File Labels */}
@@ -395,7 +538,7 @@ export default function ChessBoard({
 
                   const piece = chess.get(square);
                   const isSelected = selectedSquare === square;
-                  const isLegalDestination = legalMoves.includes(square);
+                  const isLegalDestination = showInstructions && legalMoves.includes(square);
                   const isLastMove = lastMove && (lastMove.from === square || lastMove.to === square);
                   const isHint = hintSquare && (hintSquare.from === square || hintSquare.to === square);
 
@@ -479,9 +622,9 @@ export default function ChessBoard({
             </div>
             <div>
               <p className="text-xs font-bold text-white leading-none">
-                You ({playerColor === 'w' ? 'White' : 'Black'})
+                {user?.username || user?.name || 'You'} ({playerColor === 'w' ? 'White' : 'Black'})
               </p>
-              <p className="text-[10px] text-amber-400/90 font-mono mt-0.5">Rating: 1540 ELO</p>
+              <p className="text-[10px] text-amber-400/90 font-mono mt-0.5">Rating: {user?.rating || 1200} ELO</p>
             </div>
           </div>
 
@@ -562,7 +705,7 @@ export default function ChessBoard({
             </span>
           </button>
 
-          {/* Button 4: HINT (with red notification badge like Image 2) */}
+          {/* Button 4: HINT */}
           <button
             onClick={handleGetHint}
             disabled={isAiThinking || chess.isGameOver()}
@@ -580,6 +723,25 @@ export default function ChessBoard({
             </div>
             <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-amber-200">
               Hint
+            </span>
+          </button>
+
+          {/* Button 5: RESIGN */}
+          <button
+            onClick={handleResign}
+            disabled={isAiThinking || chess.isGameOver()}
+            className={`flex flex-col items-center gap-1 group focus:outline-none ${
+              isAiThinking || chess.isGameOver() ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+            title="Resign Match"
+          >
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-b from-[#881337] via-[#4c0519] to-[#27020d] p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.6)] group-hover:scale-105 transition-transform">
+              <div className="w-full h-full rounded-full bg-gradient-to-b from-[#be123c] to-[#881337] border border-rose-400/60 flex items-center justify-center shadow-inner">
+                <Flag className="w-5 h-5 sm:w-6 sm:h-6 text-rose-100" />
+              </div>
+            </div>
+            <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-rose-300 group-hover:text-rose-200">
+              Resign
             </span>
           </button>
         </div>
@@ -760,6 +922,120 @@ export default function ChessBoard({
                 <span className="font-extrabold text-sm text-white group-hover:text-amber-300">Black</span>
                 <span className="text-[10px] text-slate-400 font-semibold">Responds Second</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: GAME OVER WINNER ANNOUNCEMENT ================= */}
+      {gameOverModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
+          <div
+            className={`relative w-full max-w-md rounded-3xl p-6 sm:p-8 text-center space-y-6 shadow-2xl transition-all ${
+              gameOverModal.isDraw
+                ? 'bg-gradient-to-b from-[#131b2e] via-[#0f1728] to-[#0a0f1d] border-2 border-slate-600 shadow-[0_0_40px_rgba(148,163,184,0.2)]'
+                : gameOverModal.isUserWin || (gameOverModal.winnerName !== 'Computer' && !gameOverModal.winnerName.includes('Stockfish'))
+                ? 'bg-gradient-to-b from-[#0e1a30] via-[#0c1527] to-[#080d1a] border-2 border-amber-400 shadow-[0_0_50px_rgba(245,158,11,0.35)]'
+                : 'bg-gradient-to-b from-[#1f1118] via-[#160c13] to-[#0a0508] border-2 border-rose-500/80 shadow-[0_0_50px_rgba(244,63,94,0.3)]'
+            }`}
+          >
+            {/* Top Close Button (Review Board) */}
+            <button
+              onClick={() => setGameOverModal((prev) => ({ ...prev, isOpen: false }))}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+              title="Close and inspect final board"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Glowing Icon */}
+            <div className="mx-auto flex items-center justify-center">
+              {gameOverModal.isDraw ? (
+                <div className="w-20 h-20 rounded-3xl bg-slate-800/80 border-2 border-slate-600 flex items-center justify-center shadow-lg">
+                  <Award className="w-10 h-10 text-slate-300" />
+                </div>
+              ) : gameOverModal.isUserWin || (gameOverModal.winnerName !== 'Computer' && !gameOverModal.winnerName.includes('Stockfish')) ? (
+                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-400/25 to-amber-500/10 border-2 border-amber-400 flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.4)] animate-bounce">
+                  <Trophy className="w-10 h-10 text-amber-300 fill-amber-400/30" />
+                </div>
+              ) : (
+                <div className="w-20 h-20 rounded-3xl bg-rose-500/20 border-2 border-rose-500/60 flex items-center justify-center shadow-[0_0_30px_rgba(244,63,94,0.3)]">
+                  <Bot className="w-10 h-10 text-rose-400" />
+                </div>
+              )}
+            </div>
+
+            {/* Title & Subtitle */}
+            <div className="space-y-1">
+              <h2
+                className={`text-3xl sm:text-4xl font-black uppercase tracking-tight ${
+                  gameOverModal.isDraw
+                    ? 'text-slate-200'
+                    : gameOverModal.isUserWin || (gameOverModal.winnerName !== 'Computer' && !gameOverModal.winnerName.includes('Stockfish'))
+                    ? 'text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-amber-100'
+                    : 'text-rose-400'
+                }`}
+              >
+                {gameOverModal.title}
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 font-medium">
+                {gameOverModal.subtitle}
+              </p>
+            </div>
+
+            {/* Match Stats Pill Bar */}
+            <div className="grid grid-cols-3 gap-2.5 p-3 rounded-2xl bg-black/40 border border-slate-800 text-center">
+              <div>
+                <span className="block text-[10px] text-slate-400 uppercase font-semibold">Winner</span>
+                <span className="text-xs font-extrabold text-amber-300 truncate block">
+                  {gameOverModal.winnerName}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[10px] text-slate-400 uppercase font-semibold">Method</span>
+                <span className="text-xs font-extrabold text-white truncate block">
+                  {gameOverModal.method}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[10px] text-slate-400 uppercase font-semibold">Moves</span>
+                <span className="text-xs font-extrabold text-emerald-400 block">
+                  {gameOverModal.moves}
+                </span>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="space-y-2 pt-2">
+              <button
+                onClick={() => {
+                  setGameOverModal((prev) => ({ ...prev, isOpen: false }));
+                  resetGame(playerColor);
+                }}
+                className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-[#e5a93c] via-[#f5b94e] to-[#e5a93c] hover:opacity-90 text-black font-extrabold text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-500/25 transition-all cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Play Again / Rematch</span>
+              </button>
+
+              <button
+                onClick={() => setGameOverModal((prev) => ({ ...prev, isOpen: false }))}
+                className="w-full py-2.5 px-4 rounded-2xl bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white text-xs font-bold transition-colors cursor-pointer"
+              >
+                Review Board Position
+              </button>
+
+              {onNavigate && (
+                <button
+                  onClick={() => {
+                    setGameOverModal((prev) => ({ ...prev, isOpen: false }));
+                    onNavigate('home');
+                  }}
+                  className="text-xs text-slate-400 hover:text-amber-300 font-semibold pt-1 transition-colors cursor-pointer block mx-auto"
+                >
+                  Exit to Arena
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -6,24 +6,22 @@ export const AuthContext = createContext(null);
 const TOKEN_KEY = 'cc_auth_token';
 const USER_KEY = 'chess_cure_user';
 const CAREER_KEY = 'chess_cure_career';
+const PREFERENCES_KEY = 'chess_cure_preferences';
 
-const DEFAULT_CAREER_GAMES = [
-  { id: 'g-101', opponent: 'Stockfish Engine (Lvl 4)', mode: 'vs Computer', result: 'Won', method: 'Checkmate', moves: 32, ratingChange: '+18', date: 'Yesterday' },
-  { id: 'g-102', opponent: 'MagnusFan99', mode: 'Online Match', result: 'Won', method: 'Resignation', moves: 24, ratingChange: '+14', date: '3 days ago' },
-  { id: 'g-103', opponent: 'Alex_Rook', mode: 'Online Match', result: 'Lost', method: 'Time Out', moves: 45, ratingChange: '-11', date: '5 days ago' },
-  { id: 'g-104', opponent: 'Guest_7841', mode: 'Two Players', result: 'Won', method: 'Checkmate', moves: 19, ratingChange: '+8', date: '1 week ago' },
-];
+const FACEBOOK_APP_ID = '1608757584075667';
+
+const DEFAULT_CAREER_GAMES = [];
 
 export const DEFAULT_ACTIVE_USER = {
   id: 'usr_grandmaster',
-  username: 'Grandmaster',
+  username: 'GrandmasterMaster',
   email: 'grandmaster@chesscure.com',
-  rating: 1540,
-  skill: 'Club Player (Intermediate)',
-  title: 'Tactical Aspirant',
-  wins: 84,
-  losses: 41,
-  draws: 9,
+  rating: 2150,
+  skill: 'advanced',
+  title: 'Grandmaster',
+  wins: 82,
+  losses: 42,
+  draws: 8,
   puzzlesSolved: 342,
   isGuest: false,
 };
@@ -32,9 +30,9 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try {
       const saved = localStorage.getItem(USER_KEY) || localStorage.getItem('cc_auth_user');
-      return saved ? JSON.parse(saved) : DEFAULT_ACTIVE_USER;
+      return saved ? JSON.parse(saved) : null;
     } catch {
-      return DEFAULT_ACTIVE_USER;
+      return null;
     }
   });
 
@@ -46,9 +44,30 @@ export function AuthProvider({ children }) {
     }
   });
 
-  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(user));
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(token && user));
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState(null);
+
+  const [preferences, setPreferences] = useState(() => {
+    try {
+      const saved = localStorage.getItem(PREFERENCES_KEY);
+      return saved ? JSON.parse(saved) : {
+        boardTheme: 'Dark Obsidian & Warm Gold Accent',
+        pieceAudio: true,
+        secretMoveNotifications: true,
+        soundVolume: 80,
+        showInstructions: true,
+      };
+    } catch {
+      return {
+        boardTheme: 'Dark Obsidian & Warm Gold Accent',
+        pieceAudio: true,
+        secretMoveNotifications: true,
+        soundVolume: 80,
+        showInstructions: true,
+      };
+    }
+  });
 
   const [careerGames, setCareerGames] = useState(() => {
     try {
@@ -59,7 +78,29 @@ export function AuthProvider({ children }) {
     }
   });
 
-  // Verify backend session on mount if token exists
+  // Initialize Facebook SDK with App ID 1608757584075667
+  useEffect(() => {
+    if (!window.FB) {
+      window.fbAsyncInit = function () {
+        window.FB.init({
+          appId: FACEBOOK_APP_ID,
+          cookie: true,
+          xfbml: true,
+          version: 'v20.0',
+        });
+      };
+      (function (d, s, id) {
+        var js, fjs = d.getElementsByTagName(s)[0];
+        if (d.getElementById(id)) return;
+        js = d.createElement(s);
+        js.id = id;
+        js.src = 'https://connect.facebook.net/en_US/sdk.js';
+        fjs.parentNode.insertBefore(js, fjs);
+      })(document, 'script', 'facebook-jssdk');
+    }
+  }, []);
+
+  // Verify backend session and load DB games/preferences on mount
   useEffect(() => {
     async function restoreSession() {
       const storedToken = localStorage.getItem(TOKEN_KEY);
@@ -71,39 +112,68 @@ export function AuthProvider({ children }) {
           setUser(res.user);
           setIsAuthenticated(true);
           localStorage.setItem(USER_KEY, JSON.stringify(res.user));
+
+          // Fetch real games from DB
+          try {
+            const dbGames = await api.getGameHistory(storedToken);
+            setCareerGames(Array.isArray(dbGames) ? dbGames : []);
+          } catch (e) {
+            console.warn('Game history load warning:', e.message);
+            setCareerGames([]);
+          }
+
+          // Fetch preferences
+          try {
+            const dbPrefs = await api.getPreferences(storedToken);
+            if (dbPrefs) {
+              setPreferences(dbPrefs);
+              localStorage.setItem(PREFERENCES_KEY, JSON.stringify(dbPrefs));
+            }
+          } catch (e) {
+            console.warn('Preferences load warning:', e.message);
+          }
         }
       } catch (err) {
         console.warn('Backend session restore warning:', err.message);
+        // Clear invalid token
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        setToken(null);
+        setUser(null);
+        setIsAuthenticated(false);
       }
     }
 
     restoreSession();
   }, []);
 
-  // Sync user and career games to localStorage
+  // Sync user state to localStorage
   useEffect(() => {
-    if (user) {
+    if (user && token) {
       localStorage.setItem(USER_KEY, JSON.stringify(user));
       localStorage.setItem('cc_auth_user', JSON.stringify(user));
       setIsAuthenticated(true);
-    } else {
+    } else if (!token) {
       localStorage.removeItem(USER_KEY);
       localStorage.removeItem('cc_auth_user');
       setIsAuthenticated(false);
     }
-  }, [user]);
+  }, [user, token]);
 
   useEffect(() => {
     localStorage.setItem(CAREER_KEY, JSON.stringify(careerGames));
   }, [careerGames]);
 
-  // Combined Login: Tries real Backend API first; falls back gracefully
+  useEffect(() => {
+    localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+  }, [preferences]);
+
+  // Real Backend Login: surfaces real errors directly
   const login = async (identifierOrEmail, password, rememberMe = true) => {
     setAuthError(null);
     setIsLoading(true);
 
     try {
-      // Attempt backend API call
       const res = await api.login({
         email: identifierOrEmail,
         password,
@@ -115,73 +185,56 @@ export function AuthProvider({ children }) {
         setUser(res.user);
         setIsAuthenticated(true);
         localStorage.setItem(TOKEN_KEY, res.token);
+
+        // Fetch user's DB games & preferences
+        try {
+          const games = await api.getGameHistory(res.token);
+          setCareerGames(Array.isArray(games) ? games : []);
+          const prefs = await api.getPreferences(res.token);
+          if (prefs) {
+            setPreferences(prefs);
+          }
+        } catch (ignored) {
+          setCareerGames([]);
+        }
+
         return { success: true, user: res.user };
       }
+      throw new Error(res?.error || 'Invalid credentials.');
     } catch (err) {
-      // If backend threw an explicit error (like invalid credentials)
-      console.warn('Backend login attempt returned:', err.message);
-      
-      // If server is not running or credentials check failed, but user entered credentials
-      // Let's create an authenticated profile session
-      const fallbackUser = {
-        id: 'usr_' + Date.now(),
-        username: identifierOrEmail.split('@')[0] || 'ChessKnight',
-        email: identifierOrEmail.includes('@') ? identifierOrEmail : `${identifierOrEmail}@chesscure.com`,
-        identifier: identifierOrEmail,
-        avatar: null,
-        isGuest: false,
-        rating: 1540,
-        skill: 'Club Player (Intermediate)',
-        title: 'Tactical Aspirant',
-        wins: 82,
-        losses: 42,
-        draws: 8,
-        puzzlesSolved: 342,
-      };
-
-      setUser(fallbackUser);
-      setIsAuthenticated(true);
-      return { success: true, user: fallbackUser };
+      const message = err.message || 'Login failed. Please verify credentials.';
+      setAuthError(message);
+      throw new Error(message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Register via backend API
+  // Real Backend Registration: surfaces real errors directly
   const register = async ({ username, email, mobileNumber, password, skill }) => {
     setAuthError(null);
     setIsLoading(true);
     try {
       const res = await api.register({ username, email, mobileNumber, password, skill });
-      if (res?.user) {
+      if (res?.token && res?.user) {
+        setToken(res.token);
         setUser(res.user);
         setIsAuthenticated(true);
+        setCareerGames([]);
+        localStorage.setItem(TOKEN_KEY, res.token);
+        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
       }
       return { success: true, user: res?.user, message: res?.message };
     } catch (err) {
-      // Fallback local registration if server is offline
-      const newUser = {
-        id: 'usr_' + Date.now(),
-        username: username || 'Player',
-        email: email || `${username}@chesscure.com`,
-        mobileNumber: mobileNumber || '',
-        skill: skill || 'Beginner',
-        rating: 1200,
-        wins: 0,
-        losses: 0,
-        draws: 0,
-        puzzlesSolved: 0,
-        isGuest: false,
-      };
-      setUser(newUser);
-      setIsAuthenticated(true);
-      return { success: true, user: newUser };
+      const message = err.message || 'Registration failed. Please check your details.';
+      setAuthError(message);
+      throw new Error(message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // User Signup (also supports simple identifier)
+  // User Signup helper
   const signup = ({ username, identifier, password, skill }) => {
     const isEmail = identifier && identifier.includes('@');
     return register({
@@ -189,7 +242,7 @@ export function AuthProvider({ children }) {
       email: isEmail ? identifier : `${identifier}@chesscure.com`,
       mobileNumber: !isEmail ? identifier : '',
       password,
-      skill: skill || 'Club Player',
+      skill: skill || 'intermediate',
     });
   };
 
@@ -201,49 +254,127 @@ export function AuthProvider({ children }) {
         setUser(res.user);
         setToken(res.token);
         localStorage.setItem(TOKEN_KEY, res.token);
-        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
         setIsAuthenticated(true);
       }
-      return true;
+      return { success: true, user: res.user };
     } catch (e) {
-      console.warn('Google backend auth fallback:', e);
-      return false;
+      setAuthError(e.message || 'Google authentication failed.');
+      throw e;
     }
   };
 
-  // Social Login: Facebook
-  const loginWithFacebook = async () => {
-    try {
-      const res = await api.loginWithFacebook();
-      if (res?.user && res?.token) {
-        setUser(res.user);
-        setToken(res.token);
-        localStorage.setItem(TOKEN_KEY, res.token);
-        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
-        setIsAuthenticated(true);
+  // Social Login: Facebook (Uses App ID 1608757584075667 with popup flow)
+  const loginWithFacebook = () => {
+    setAuthError(null);
+    return new Promise((resolve, reject) => {
+      // Check if FB SDK is loaded
+      if (window.FB) {
+        window.FB.login((response) => {
+          if (response.authResponse) {
+            const accessToken = response.authResponse.accessToken;
+            // Fetch name, email, and high-res picture from Facebook Graph API
+            window.FB.api('/me', { fields: 'id,name,email,picture.width(200)' }, async (userInfo) => {
+              try {
+                const avatarUrl = userInfo?.picture?.data?.url || null;
+                const email = userInfo?.email || `fb_${userInfo?.id || Date.now()}@facebook.com`;
+                const name = userInfo?.name || 'Facebook Grandmaster';
+
+                const res = await api.loginWithFacebook({
+                  accessToken,
+                  email,
+                  name,
+                  avatar: avatarUrl,
+                });
+
+                if (res?.token && res?.user) {
+                  setToken(res.token);
+                  setUser(res.user);
+                  setIsAuthenticated(true);
+                  localStorage.setItem(TOKEN_KEY, res.token);
+                  resolve({ success: true, user: res.user });
+                } else {
+                  throw new Error(res?.error || 'Facebook session creation failed.');
+                }
+              } catch (err) {
+                setAuthError(err.message);
+                reject(err);
+              }
+            });
+          } else {
+            const errorMsg = response?.status === 'not_authorized'
+              ? 'Facebook permissions were not granted.'
+              : 'Facebook sign-in was cancelled.';
+            setAuthError(errorMsg);
+            reject(new Error(errorMsg));
+          }
+        }, { scope: 'public_profile' });
+      } else {
+        // Fallback to backend simulated Facebook session if popup script is blocked
+        api.loginWithFacebook()
+          .then((res) => {
+            if (res?.token && res?.user) {
+              setToken(res.token);
+              setUser(res.user);
+              setIsAuthenticated(true);
+              localStorage.setItem(TOKEN_KEY, res.token);
+              resolve({ success: true, user: res.user });
+            }
+          })
+          .catch((err) => {
+            setAuthError(err.message);
+            reject(err);
+          });
       }
-      return true;
-    } catch (e) {
-      console.warn('Facebook backend auth fallback:', e);
-      return false;
-    }
+    });
   };
 
-  // Guest Mode
-  const continueAsGuest = async () => {
+  // Guest Mode - Stored in LocalStorage on this system/browser only
+  const continueAsGuest = () => {
     try {
-      const res = await api.continueAsGuest();
-      if (res?.user && res?.token) {
-        setUser(res.user);
-        setToken(res.token);
-        localStorage.setItem(TOKEN_KEY, res.token);
-        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
-        setIsAuthenticated(true);
+      const guestKey = 'chess_cure_guest_user';
+      const guestGamesKey = 'chess_cure_guest_games';
+
+      let guestUser = null;
+      try {
+        const saved = localStorage.getItem(guestKey);
+        if (saved) guestUser = JSON.parse(saved);
+      } catch (e) {}
+
+      if (!guestUser) {
+        guestUser = {
+          id: 'guest_local_' + Date.now(),
+          username: 'Guest Player',
+          name: 'Guest Player',
+          email: 'guest@system.local',
+          isGuest: true,
+          authProvider: 'guest',
+          playerId: '100000',
+          skill: 'beginner',
+          rating: 1000,
+          title: 'Guest Apprentice',
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          puzzlesSolved: 0,
+          createdAt: new Date().toISOString(),
+        };
+        localStorage.setItem(guestKey, JSON.stringify(guestUser));
       }
-      return true;
+
+      let guestGames = [];
+      try {
+        const savedGames = localStorage.getItem(guestGamesKey);
+        if (savedGames) guestGames = JSON.parse(savedGames);
+      } catch (e) {}
+
+      setUser(guestUser);
+      setToken('guest_local_token');
+      setCareerGames(guestGames);
+      setIsAuthenticated(true);
+      return { success: true, user: guestUser };
     } catch (e) {
-      console.warn('Guest backend auth fallback:', e);
-      return false;
+      setAuthError(e.message || 'Guest login failed.');
+      throw e;
     }
   };
 
@@ -265,7 +396,20 @@ export function AuthProvider({ children }) {
     setAuthError(null);
   };
 
-  const updateUserProfile = (updates) => {
+  // Update profile via backend API
+  const updateUserProfile = async (updates) => {
+    const currentToken = token || localStorage.getItem(TOKEN_KEY);
+    if (currentToken) {
+      try {
+        const res = await api.updateProfile(currentToken, updates);
+        if (res?.user) {
+          setUser(res.user);
+          return res.user;
+        }
+      } catch (err) {
+        console.warn('Backend profile update failed:', err.message);
+      }
+    }
     setUser((prev) => {
       if (!prev) return prev;
       const updated = { ...prev, ...updates };
@@ -274,8 +418,74 @@ export function AuthProvider({ children }) {
     });
   };
 
-  const recordGameResult = (gameData) => {
-    setCareerGames((prev) => [gameData, ...prev]);
+  // Update preferences via backend API
+  const updatePreferencesHandler = async (newPrefs) => {
+    const merged = { ...preferences, ...newPrefs };
+    setPreferences(merged);
+    const currentToken = token || localStorage.getItem(TOKEN_KEY);
+    if (currentToken) {
+      try {
+        await api.updatePreferences(currentToken, newPrefs);
+      } catch (err) {
+        console.warn('Backend preferences sync failed:', err.message);
+      }
+    }
+  };
+
+  // Change password via backend API
+  const changePasswordHandler = async (currentPassword, newPassword) => {
+    const currentToken = token || localStorage.getItem(TOKEN_KEY);
+    if (!currentToken) throw new Error('You must be signed in to change password.');
+    return await api.changePassword(currentToken, { currentPassword, newPassword });
+  };
+
+  // Record game and sync to database or local storage for guest
+  const recordGameResult = async (gameData) => {
+    // 1. Guest mode: save solely in localStorage on this machine
+    if (user?.isGuest || token === 'guest_local_token') {
+      const newGame = {
+        ...gameData,
+        id: gameData.id || `g_${Date.now()}`,
+        date: gameData.date || 'Just now',
+      };
+      const updatedGames = [newGame, ...careerGames];
+      setCareerGames(updatedGames);
+      localStorage.setItem('chess_cure_guest_games', JSON.stringify(updatedGames));
+
+      const isWin = gameData.result?.toLowerCase() === 'won';
+      const isLoss = gameData.result?.toLowerCase() === 'lost';
+      const updatedGuestUser = {
+        ...user,
+        wins: (user?.wins || 0) + (isWin ? 1 : 0),
+        losses: (user?.losses || 0) + (isLoss ? 1 : 0),
+        draws: (user?.draws || 0) + (!isWin && !isLoss ? 1 : 0),
+      };
+      setUser(updatedGuestUser);
+      localStorage.setItem('chess_cure_guest_user', JSON.stringify(updatedGuestUser));
+      return newGame;
+    }
+
+    // 2. Authenticated user: save in backend DB
+    const currentToken = token || localStorage.getItem(TOKEN_KEY);
+    if (currentToken) {
+      try {
+        const res = await api.recordGame(currentToken, {
+          opponent: gameData.opponent,
+          mode: gameData.mode,
+          result: gameData.result,
+          method: gameData.method,
+          moves: gameData.moves,
+          ratingChange: gameData.ratingChange,
+        });
+        if (res) {
+          setCareerGames((prev) => [res, ...prev]);
+        }
+      } catch (e) {
+        console.warn('Backend record game warning:', e.message);
+        setCareerGames((prev) => [gameData, ...prev]);
+      }
+    }
+
     if (user) {
       setUser((prev) => {
         if (!prev) return prev;
@@ -301,6 +511,7 @@ export function AuthProvider({ children }) {
     isAuthenticated,
     isLoading,
     authError,
+    preferences,
     careerGames,
     login,
     register,
@@ -310,6 +521,8 @@ export function AuthProvider({ children }) {
     continueAsGuest,
     logout,
     updateUserProfile,
+    updatePreferences: updatePreferencesHandler,
+    changePassword: changePasswordHandler,
     recordGameResult,
     clearError,
   };

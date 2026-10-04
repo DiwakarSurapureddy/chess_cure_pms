@@ -16,6 +16,7 @@ class UserResponse(BaseModel):
     losses: Optional[int] = 0
     draws: Optional[int] = 0
     puzzlesSolved: Optional[int] = 0
+    authProvider: Optional[str] = "local"
     isGuest: Optional[bool] = False
     playerId: Optional[str] = None
     createdAt: Optional[str] = None

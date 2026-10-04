@@ -43,6 +43,7 @@ class User(Base):
             "losses": self.losses,
             "draws": self.draws,
             "puzzlesSolved": self.puzzles_solved,
+            "authProvider": self.auth_provider,
             "isGuest": self.is_guest,
             "playerId": self.player_id,
             "createdAt": self.created_at.isoformat() if self.created_at else None,

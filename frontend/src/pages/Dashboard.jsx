@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import ChessBoard from '../components/chess/ChessBoard';
 import { useAuth } from '../context/AuthContext';
-import { useSecretChat } from '../context/SecretChatContext';
-import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X, Crown, Clock } from 'lucide-react';
+import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X, Crown } from 'lucide-react';
 
 export default function Dashboard({ initialMode = 'computer', onNavigate }) {
-  const { recordGameResult } = useAuth();
-  const { isChatUnlocked, formattedTime, openChatModal, unlockSecretChat } = useSecretChat();
+  const { user, recordGameResult } = useAuth();
   const [mode, setMode] = useState(initialMode);
   const [aiLevel, setAiLevel] = useState('intermediate');
   const [selectedSide, setSelectedSide] = useState('w'); // 'w' | 'b'
+  const [friendName, setFriendName] = useState('Friend');
+  const [secretUnlocked, setSecretUnlocked] = useState(false);
+  const [showSecretModal, setShowSecretModal] = useState(false);
 
   useEffect(() => {
     if (initialMode) {
@@ -18,13 +19,18 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   }, [initialMode]);
 
   const handleSecretMove = (move) => {
-    unlockSecretChat(move?.reason || 'Opponent piece captured within 5 moves');
+    setSecretUnlocked(true);
+    setShowSecretModal(true);
   };
 
   const handleGameOver = (resultData) => {
+    const oppName = mode === 'computer'
+      ? 'Computer'
+      : (friendName || 'Friend (Player 2)');
+
     recordGameResult({
       id: 'match_' + Date.now(),
-      opponent: mode === 'computer' ? `Stockfish AI (${aiLevel})` : 'Friend (Player 2)',
+      opponent: oppName,
       mode: mode === 'computer' ? 'vs Computer' : 'Play vs Friends',
       result: resultData.result,
       method: resultData.method,
@@ -97,7 +103,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
           </button>
         </div>
 
-        {/* Right: AI Difficulty Selector (when vs Computer) */}
+        {/* Right: AI Difficulty Selector (when vs Computer) or Friend Name (when vs Friend) */}
         {mode === 'computer' && (
           <div className="flex items-center gap-1.5 bg-[#070b14] p-1.5 rounded-2xl border border-slate-800">
             <span className="text-[11px] text-slate-400 font-semibold px-1.5">AI Level:</span>
@@ -117,28 +123,91 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
           </div>
         )}
 
-        {/* Secret Chat Indicator Badge with Live Countdown */}
-        {isChatUnlocked && (
+        {mode === 'two-player' && (
+          <div className="flex items-center gap-2 bg-[#070b14] px-3 py-1.5 rounded-2xl border border-slate-800 text-xs">
+            <User className="w-3.5 h-3.5 text-blue-400" />
+            <span className="text-slate-400 font-semibold">Friend:</span>
+            <input
+              type="text"
+              value={friendName}
+              onChange={(e) => setFriendName(e.target.value)}
+              placeholder="Friend's Name"
+              className="bg-slate-900 border border-slate-700 focus:border-amber-400 text-amber-200 text-xs px-2.5 py-1 rounded-xl outline-none max-w-[130px]"
+            />
+          </div>
+        )}
+
+        {/* Secret Chat Indicator Badge */}
+        {secretUnlocked && (
           <button
-            onClick={openChatModal}
-            className="py-1.5 px-3 rounded-xl bg-amber-500/20 border border-amber-400 text-amber-300 text-xs font-bold flex items-center gap-1.5 animate-bounce shadow-lg hover:bg-amber-500/30 transition-all"
-            title={`Secret Chat Active (${formattedTime} remaining)`}
+            onClick={() => setShowSecretModal(true)}
+            className="py-1.5 px-3 rounded-xl bg-amber-500/20 border border-amber-400 text-amber-300 text-xs font-bold flex items-center gap-1.5 animate-bounce shadow-lg"
           >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Open Secret Chat ({formattedTime})</span>
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Open Secret Chat</span>
           </button>
         )}
       </div>
 
       {/* Main Playable Chessboard with selected side and mode */}
       <ChessBoard
-        key={`${mode}-${selectedSide}`}
+        key={`${mode}-${selectedSide}-${friendName}`}
         gameMode={mode}
         aiDifficulty={aiLevel}
         initialPlayerColor={selectedSide}
+        player1Name={user?.username || user?.name || 'Player 1'}
+        player2Name={friendName || 'Friend (Player 2)'}
         onSecretMoveDetected={handleSecretMove}
         onGameOver={handleGameOver}
+        onNavigate={onNavigate}
       />
+
+      {/* Secret Chat Modal */}
+      {showSecretModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in">
+          <div className="relative w-full max-w-lg rounded-3xl bg-[#0e1728] border border-amber-400/80 p-6 shadow-[0_0_40px_rgba(229,169,60,0.25)] space-y-4">
+            <button
+              onClick={() => setShowSecretModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white">Secret Chat Channel</h3>
+                <p className="text-xs text-amber-400">Unlocked via Tactical Knight Easter Egg</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-[#080d17] border border-slate-800 space-y-3 min-h-[160px] flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="p-2.5 rounded-xl bg-[#111c30] text-xs text-slate-300 max-w-[80%]">
+                  <p className="text-[10px] text-amber-400 font-bold mb-0.5">Grandmaster Encrypted Network</p>
+                  You discovered the hidden move. Secret chat channel is now initialized.
+                </div>
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 max-w-[80%] ml-auto">
+                  Ready to send secure real-time messages.
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-800/80">
+                <input
+                  type="text"
+                  placeholder="Type an encrypted message..."
+                  className="flex-1 px-3 py-2 bg-[#0d1524] border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-400"
+                />
+                <button className="px-4 py-2 bg-[#e5a93c] text-black font-bold text-xs rounded-xl hover:bg-[#f5b94e]">
+                  Send
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -154,3 +154,20 @@ backend/
 | **Install Packages** | `pip install -r requirements.txt` |
 | **Start Server** | `uvicorn app.main:app --reload --port 8000` |
 | **Deactivate Venv** | `deactivate` |
+
+---
+
+## Chess Game and Challenge APIs
+
+The backend also provides chess game, real-time multiplayer, and challenge endpoints:
+
+- `POST /api/games` and `GET /api/games` to create and list chess games
+- `GET /api/games/{game_id}` and `POST /api/games/{game_id}/move` to inspect a game and play a move
+- `POST /api/games/{game_id}/computer-move` and `POST /api/games/{game_id}/play-computer` to play against the computer
+- `WebSocket /api/games/{game_id}/ws` for real-time multiplayer games
+- `POST /api/challenges`, `GET /api/challenges`, and `POST /api/challenges/{challenge_id}/solve` for chess challenges
+- `GET /api/board`, `POST /api/move`, and `POST /api/reset` for the simple computer-play board
+
+See the interactive API documentation at `/docs` for request formats and the full endpoint list.
+
+Game sessions and user career history are stored separately so both APIs can use their own data models.

@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import api from '../services/api';
 import {
   User,
   Mail,
@@ -19,11 +20,119 @@ import {
   Flame,
   LogIn,
   Settings,
-  LogOut
+  LogOut,
+  Edit3,
+  Check,
+  X,
+  Hash,
+  Copy,
+  Users,
+  UserPlus,
+  Search,
+  Loader2
 } from 'lucide-react';
 
 export default function Profile({ onNavigate }) {
-  const { user, careerGames = [], logout } = useAuth();
+  const { user, token, careerGames = [], logout, updateUserProfile } = useAuth();
+
+  const [dbStats, setDbStats] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editUsername, setEditUsername] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editSkill, setEditSkill] = useState('intermediate');
+  const [editStatus, setEditStatus] = useState({ error: '', loading: false });
+  const [copiedGameId, setCopiedGameId] = useState(false);
+  const [searchGameId, setSearchGameId] = useState('');
+  const [searchedPlayer, setSearchedPlayer] = useState(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [friendsList, setFriendsList] = useState(() => {
+    try {
+      const saved = localStorage.getItem('chess_cure_friends');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (token) {
+      api.getProfileStats(token)
+        .then((res) => {
+          if (res) setDbStats(res);
+        })
+        .catch(() => {});
+    }
+  }, [token, user]);
+
+  const handleSearchFriend = async (e) => {
+    e.preventDefault();
+    if (!searchGameId || searchGameId.length !== 6) {
+      setSearchError('Please enter a valid 6-digit Game ID (e.g. 100003)');
+      return;
+    }
+    setSearchError('');
+    setSearchLoading(true);
+    try {
+      const res = await api.getPlayerByGameId(searchGameId);
+      if (res?.player) {
+        setSearchedPlayer(res.player);
+      } else {
+        setSearchError(`Player with Game ID #${searchGameId} not found.`);
+      }
+    } catch (err) {
+      setSearchError(err.message || 'Player not found.');
+      setSearchedPlayer(null);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleAddFriend = (friend) => {
+    const exists = friendsList.some((f) => f.playerId === friend.playerId);
+    let updated;
+    if (exists) {
+      updated = friendsList.filter((f) => f.playerId !== friend.playerId);
+    } else {
+      updated = [...friendsList, friend];
+    }
+    setFriendsList(updated);
+    localStorage.setItem('chess_cure_friends', JSON.stringify(updated));
+  };
+
+  const handleChallengePlayer = (player) => {
+    if (onNavigate) {
+      onNavigate('home');
+    }
+  };
+
+  const handleOpenEdit = () => {
+    setEditUsername(user?.username || '');
+    setEditPhone(user?.mobileNumber || user?.phone || '');
+    setEditSkill(user?.skill || 'intermediate');
+    setEditStatus({ error: '', loading: false });
+    setIsEditing(true);
+  };
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    if (!editUsername.trim()) {
+      setEditStatus({ error: 'Username cannot be empty', loading: false });
+      return;
+    }
+
+    setEditStatus({ error: '', loading: true });
+    try {
+      await updateUserProfile({
+        username: editUsername.trim(),
+        mobileNumber: editPhone.trim(),
+        skill: editSkill,
+      });
+      setIsEditing(false);
+    } catch (err) {
+      setEditStatus({ error: err.message || 'Failed to update profile.', loading: false });
+    }
+  };
 
   if (!user) {
     return (
@@ -47,20 +156,29 @@ export default function Profile({ onNavigate }) {
 
   const username = user.username || user.name || 'Grandmaster Candidate';
   const email = user.email || user.identifier || 'player@chesscure.com';
-  const phone = user.mobileNumber || user.phone || '+91 98765 43210';
-  const rating = user.rating || 1540;
-  const skill = user.skill || 'Club Player (Intermediate)';
+  const phone = user.mobileNumber || user.phone || 'Not Provided';
+  const rating = dbStats?.rating ?? user.rating ?? 1200;
+  const skill = dbStats?.skill ?? user.skill ?? 'intermediate';
   const initial = username ? username[0].toUpperCase() : 'G';
+  const playerId = dbStats?.playerId || user.playerId || '100001';
 
-  const winsCount = user.wins ?? 84;
-  const lossesCount = user.losses ?? 41;
-  const drawsCount = user.draws ?? 9;
-  const totalGames = (user.wins !== undefined && user.losses !== undefined && user.draws !== undefined)
-    ? (user.wins + user.losses + user.draws)
-    : 134;
-  const winRate = totalGames > 0 ? Math.round((winsCount / totalGames) * 100) : 63;
-  const lossRate = totalGames > 0 ? Math.round((lossesCount / totalGames) * 100) : 31;
-  const drawRate = totalGames > 0 ? Math.round((drawsCount / totalGames) * 100) : 7;
+  // Synchronize stats directly with actual career games
+  const hasCareerGames = Array.isArray(careerGames) && careerGames.length > 0;
+  const winsCount = hasCareerGames
+    ? careerGames.filter((g) => g.result?.toLowerCase() === 'won').length
+    : (dbStats?.wins ?? user.wins ?? 0);
+  const lossesCount = hasCareerGames
+    ? careerGames.filter((g) => g.result?.toLowerCase() === 'lost').length
+    : (dbStats?.losses ?? user.losses ?? 0);
+  const drawsCount = hasCareerGames
+    ? careerGames.filter((g) => ['draw', 'stalemate'].includes(g.result?.toLowerCase())).length
+    : (dbStats?.draws ?? user.draws ?? 0);
+  const totalGames = hasCareerGames
+    ? careerGames.length
+    : (dbStats?.totalGames ?? (winsCount + lossesCount + drawsCount));
+  const winRate = totalGames > 0 ? Math.round((winsCount / totalGames) * 100) : 0;
+  const lossRate = totalGames > 0 ? Math.round((lossesCount / totalGames) * 100) : 0;
+  const drawRate = totalGames > 0 ? Math.round((drawsCount / totalGames) * 100) : 0;
 
   return (
     <div className="relative min-h-[calc(100vh-80px)] py-10 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto w-full animate-fade-in space-y-8">
@@ -75,6 +193,16 @@ export default function Profile({ onNavigate }) {
         </button>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Edit Profile Button */}
+          <button
+            onClick={handleOpenEdit}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-xs font-semibold text-amber-300 hover:text-white transition-colors cursor-pointer"
+            title="Edit Profile"
+          >
+            <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+            <span>Edit Profile</span>
+          </button>
+
           {/* Settings Shortcut Button */}
           <button
             onClick={() => onNavigate && onNavigate('settings')}
@@ -139,9 +267,28 @@ export default function Profile({ onNavigate }) {
               <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold uppercase tracking-wider">
                 {typeof skill === 'string' ? skill : 'Club Player'}
               </span>
+
+              {/* Sequential 6-digit Game ID Badge */}
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/20 via-amber-400/15 to-transparent border border-amber-400/50 text-amber-300 text-xs font-mono font-black shadow-sm">
+                <Hash className="w-3.5 h-3.5 text-amber-400" />
+                <span>Game ID: {playerId}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(playerId);
+                    setCopiedGameId(true);
+                    setTimeout(() => setCopiedGameId(false), 2000);
+                  }}
+                  className="ml-1 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  title="Copy Game ID to clipboard"
+                >
+                  {copiedGameId ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+
               {user.isGuest && (
                 <span className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] text-slate-400 font-semibold">
-                  Guest
+                  Guest Mode (Local System)
                 </span>
               )}
             </div>
@@ -226,6 +373,87 @@ export default function Profile({ onNavigate }) {
         </div>
       </div>
 
+      {/* Connect & Challenge Friend by Game ID */}
+      <div className="rounded-3xl bg-gradient-to-r from-[#0c1524] via-[#0f1b2e] to-[#0c1524] border border-amber-500/30 p-6 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <Users className="w-5 h-5 text-amber-400" />
+              <span>Connect & Challenge Friend by Game ID</span>
+            </h3>
+            <p className="text-xs text-slate-400">
+              Enter any player's 6-digit Game ID (e.g. 100001, 100002, 100003) to search their profile, add as friend, or challenge them to a match.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSearchFriend} className="flex flex-col sm:flex-row items-center gap-3">
+          <div className="relative flex-1 w-full">
+            <Hash className="w-4 h-4 text-amber-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchGameId}
+              onChange={(e) => setSearchGameId(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="Enter 6-digit Game ID (e.g. 100003)"
+              className="w-full bg-[#080d17] border border-slate-700 focus:border-amber-400 rounded-2xl pl-10 pr-4 py-2.5 text-sm text-white font-mono placeholder:text-slate-500 outline-none"
+              maxLength={6}
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={searchLoading}
+            className="w-full sm:w-auto px-6 py-2.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 text-black font-extrabold text-xs uppercase tracking-wider hover:opacity-90 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-amber-500/20"
+          >
+            {searchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            <span>Find Player</span>
+          </button>
+        </form>
+
+        {searchError && (
+          <p className="text-xs text-rose-400 font-semibold">{searchError}</p>
+        )}
+
+        {searchedPlayer && (
+          <div className="p-4 rounded-2xl bg-black/40 border border-amber-500/40 flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-amber-300 font-black text-lg">
+                {searchedPlayer.username ? searchedPlayer.username[0].toUpperCase() : 'P'}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-base font-extrabold text-white">{searchedPlayer.username}</h4>
+                  <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold">
+                    #{searchedPlayer.playerId}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Rating: <strong className="text-amber-400">{searchedPlayer.rating}</strong> • {searchedPlayer.title} • {searchedPlayer.wins}W / {searchedPlayer.losses}L
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => handleAddFriend(searchedPlayer)}
+                className="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 hover:text-white transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <UserPlus className="w-3.5 h-3.5 text-amber-400" />
+                <span>{friendsList.some(f => f.playerId === searchedPlayer.playerId) ? 'Friend Added' : 'Add Friend'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleChallengePlayer(searchedPlayer)}
+                className="flex-1 sm:flex-initial px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 text-black font-extrabold text-xs uppercase tracking-wide hover:opacity-90 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-amber-500/20"
+              >
+                <Swords className="w-3.5 h-3.5" />
+                <span>Challenge to Game</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Career Game History Section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -245,6 +473,27 @@ export default function Profile({ onNavigate }) {
             {careerGames.map((game) => {
               const isWin = game.result === 'Won';
               const isLoss = game.result === 'Lost';
+              const currentUserName = user?.username || user?.name || 'User';
+
+              const isComputerMatch =
+                game.mode?.toLowerCase().includes('computer') ||
+                game.opponent?.toLowerCase().includes('stockfish') ||
+                game.opponent?.toLowerCase().includes('computer');
+
+              // Format match title: when playing vs computer, show "Username vs Computer"
+              let matchTitle = game.opponent;
+              let winnerStatus = isWin ? `${currentUserName} Won` : isLoss ? 'Lost' : 'Draw';
+
+              if (isComputerMatch) {
+                matchTitle = `${currentUserName} vs Computer`;
+                winnerStatus = isWin ? `${currentUserName} Won` : isLoss ? 'Computer Won' : 'Draw';
+              } else if (game.mode === 'Challenge Puzzle') {
+                matchTitle = game.opponent;
+                winnerStatus = 'Solved';
+              } else if (game.opponent) {
+                matchTitle = `${currentUserName} vs ${game.opponent}`;
+                winnerStatus = isWin ? `${currentUserName} Won` : isLoss ? `${game.opponent} Won` : 'Draw';
+              }
 
               return (
                 <div
@@ -265,8 +514,23 @@ export default function Profile({ onNavigate }) {
                       {game.result.charAt(0)}
                     </div>
                     <div>
-                      <h4 className="text-sm font-bold text-white">{game.opponent}</h4>
-                      <p className="text-[11px] text-slate-400">{game.mode} • {game.method}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-sm font-bold text-white">{matchTitle}</h4>
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                            isWin
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : isLoss
+                              ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                              : 'bg-slate-700/30 text-slate-400 border border-slate-700'
+                          }`}
+                        >
+                          {winnerStatus}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        {game.mode} • {game.method}
+                      </p>
                     </div>
                   </div>
 
@@ -294,6 +558,88 @@ export default function Profile({ onNavigate }) {
           </div>
         )}
       </div>
+
+      {/* Edit Profile Modal */}
+      {isEditing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-md rounded-3xl bg-[#0e1728] border border-slate-700 p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-amber-400" />
+                Edit Profile
+              </h3>
+              <button
+                onClick={() => setIsEditing(false)}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {editStatus.error && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
+                {editStatus.error}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveProfile} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Username</label>
+                <input
+                  type="text"
+                  value={editUsername}
+                  onChange={(e) => setEditUsername(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-xl px-3 py-2 text-sm text-white outline-none"
+                  placeholder="Enter username"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Mobile Number</label>
+                <input
+                  type="text"
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-xl px-3 py-2 text-sm text-white outline-none"
+                  placeholder="+1 555-019-2834"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Chess Skill Level</label>
+                <select
+                  value={editSkill}
+                  onChange={(e) => setEditSkill(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-xl px-3 py-2 text-sm text-white outline-none cursor-pointer"
+                >
+                  <option value="beginner">Beginner (Rating &lt; 1000)</option>
+                  <option value="intermediate">Club Player (Intermediate)</option>
+                  <option value="advanced">Grandmaster Aspirant (Advanced)</option>
+                  <option value="master">International Master / Master</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className="py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editStatus.loading}
+                  className="py-2 px-5 rounded-xl bg-[#e5a93c] hover:bg-[#f5b94e] text-black font-bold text-xs uppercase cursor-pointer disabled:opacity-50"
+                >
+                  {editStatus.loading ? 'Saving...' : 'Save Profile'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
