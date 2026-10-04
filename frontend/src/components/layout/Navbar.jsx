@@ -17,9 +17,12 @@ import {
   Crown,
   Sparkles,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  MessageSquare,
+  Lock
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useSecretChat } from '../../context/SecretChatContext';
 
 export default function Navbar({ activeTab = 'home', onTabChange }) {
   const { 
@@ -30,6 +33,7 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
     respondMatchChallenge,
     setActiveOnlineMatch
   } = useAuth();
+  const { isChatUnlocked, formattedTime, openChatModal } = useSecretChat ? (useSecretChat() || {}) : {};
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -52,6 +56,14 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
   }, []);
 
   const handleNavClick = (tab) => {
+    if (tab === 'chat') {
+      openChatModal();
+      if (onTabChange) onTabChange('chat');
+      setMobileMenuOpen(false);
+      setNotifOpen(false);
+      setProfileOpen(false);
+      return;
+    }
     if (onTabChange) {
       onTabChange(tab);
     }
@@ -196,6 +208,42 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
               }`} />
               <span className="text-[11px] font-medium tracking-wide mt-1">Play Chess</span>
               {activeTab === 'play' && (
+                <span className="w-5 h-[2px] nav-active-glow-dash rounded-full mt-1" />
+              )}
+            </button>
+
+            {/* 3. Chat Tab (Available limited amount of time when unlocked, along with Home, Play Chess) */}
+            <button
+              onClick={() => handleNavClick('chat')}
+              className={`px-3.5 py-1.5 flex flex-col items-center justify-center transition-all group relative ${
+                activeTab === 'chat' || isChatUnlocked ? 'text-amber-300 font-bold' : 'text-slate-400 hover:text-white'
+              }`}
+              title={isChatUnlocked ? `Secret Chat Channel (${formattedTime} remaining)` : 'Secret Chat Channel (Capture opponent piece within 5 moves to unlock)'}
+            >
+              <div className="relative">
+                <MessageSquare className={`w-4 h-4 group-hover:scale-110 transition-all ${
+                  isChatUnlocked 
+                    ? 'text-amber-400 animate-bounce' 
+                    : activeTab === 'chat' 
+                    ? 'text-amber-400' 
+                    : 'text-slate-400 group-hover:text-amber-300'
+                }`} />
+                {isChatUnlocked && (
+                  <span className="absolute -top-1 -right-2 flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-80"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1 mt-1">
+                <span className="text-[11px] font-medium tracking-wide">Chat</span>
+                {isChatUnlocked && (
+                  <span className="text-[9px] px-1 py-0.2 rounded-full bg-amber-500/25 text-amber-300 font-mono font-black border border-amber-500/40">
+                    {formattedTime}
+                  </span>
+                )}
+              </div>
+              {(activeTab === 'chat' || isChatUnlocked) && (
                 <span className="w-5 h-[2px] nav-active-glow-dash rounded-full mt-1" />
               )}
             </button>
@@ -553,6 +601,28 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
             >
               <Swords className="w-4 h-4 text-amber-400" />
               <span>Play Chess</span>
+            </button>
+
+            {/* Mobile Chat Tab */}
+            <button
+              onClick={() => handleNavClick('chat')}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === 'chat' || isChatUnlocked
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <MessageSquare className="w-4 h-4 text-amber-400" />
+                <span>Chat</span>
+              </div>
+              {isChatUnlocked ? (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold border border-amber-500/40 animate-pulse">
+                  ⏱ {formattedTime}
+                </span>
+              ) : (
+                <span className="text-[10px] text-slate-500 font-mono">Secret</span>
+              )}
             </button>
 
             <button
