@@ -34,6 +34,7 @@ export default function ChessBoard({
   initialPlayerColor = 'w', // 'w' (White) | 'b' (Black)
   player1Name,
   player2Name,
+  onlineGameId,
   onSecretMoveDetected,
   onGameOver,
   onNavigate,
@@ -56,6 +57,10 @@ export default function ChessBoard({
   const [hintCount, setHintCount] = useState(3);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showSideModal, setShowSideModal] = useState(false);
+  const [onlineConnected, setOnlineConnected] = useState(false);
+  const [onlineOpponentStatus, setOnlineOpponentStatus] = useState('');
+
+  const socketRef = useRef(null);
 
   // Winner Game Over Modal State
   const [gameOverModal, setGameOverModal] = useState({
@@ -169,6 +174,90 @@ export default function ChessBoard({
       setGameStatus('In Progress');
     }
   };
+
+  // Sync playerColor with initialPlayerColor prop
+  useEffect(() => {
+    if (initialPlayerColor) {
+      setPlayerColor(initialPlayerColor);
+    }
+  }, [initialPlayerColor]);
+
+  // Online Multiplayer Live WebSocket synchronization
+  useEffect(() => {
+    if (gameMode !== 'online' || !onlineGameId) return;
+
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? '127.0.0.1:8000'
+      : window.location.host;
+    const wsUrl = `${wsProto}//${wsHost}/api/games/${onlineGameId}/ws`;
+
+    console.log('Connecting to online WebSocket:', wsUrl);
+    const socket = new WebSocket(wsUrl);
+    socketRef.current = socket;
+
+    socket.onopen = () => {
+      setOnlineConnected(true);
+      setOnlineOpponentStatus('Connected to live match arena');
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'connected') {
+          setOnlineOpponentStatus('Player joined arena');
+          if (data.game?.moves && data.game.moves.length > 0) {
+            chess.reset();
+            data.game.moves.forEach((m) => {
+              try {
+                chess.move({ from: m.slice(0, 2), to: m.slice(2, 4), promotion: m[4] || 'q' });
+              } catch (e) {}
+            });
+            refreshBoard();
+          } else if (data.game?.fen && data.game.fen !== chess.fen()) {
+            chess.load(data.game.fen);
+            refreshBoard();
+          }
+        } else if (data.type === 'move') {
+          if (data.game?.moves && data.game.moves.length > 0) {
+            const lastUci = data.game.moves[data.game.moves.length - 1];
+            const from = lastUci.slice(0, 2);
+            const to = lastUci.slice(2, 4);
+            const promotion = lastUci.length > 4 ? lastUci[4] : 'q';
+            try {
+              chess.move({ from, to, promotion });
+            } catch (err) {
+              if (data.game?.fen) chess.load(data.game.fen);
+            }
+            setLastMove({ from, to });
+            if (soundEnabled) playChessSound('move');
+            refreshBoard();
+          } else if (data.game?.fen) {
+            chess.load(data.game.fen);
+            refreshBoard();
+          }
+        } else if (data.type === 'disconnected') {
+          setOnlineOpponentStatus('Opponent disconnected');
+        }
+      } catch (err) {
+        console.warn('WS Message error:', err);
+      }
+    };
+
+    socket.onclose = () => {
+      setOnlineConnected(false);
+    };
+
+    socket.onerror = (err) => {
+      console.warn('WS socket error:', err);
+      setOnlineConnected(false);
+    };
+
+    return () => {
+      socket.close();
+      socketRef.current = null;
+    };
+  }, [gameMode, onlineGameId]);
 
   // Resign match
   const handleResign = () => {
@@ -367,6 +456,8 @@ export default function ChessBoard({
   const handleSquareClick = (squareNotation) => {
     // If computer mode and it's not the player's turn, ignore
     if (gameMode === 'computer' && chess.turn() !== playerColor) return;
+    // If online mode and it's not the player's assigned turn, ignore
+    if (gameMode === 'online' && chess.turn() !== playerColor) return;
     if (chess.isGameOver() || isAiThinking) return;
 
     // If square already selected, attempt move
@@ -389,6 +480,15 @@ export default function ChessBoard({
           setLastMove({ from: move.from, to: move.to });
           setHintSquare(null);
           lastPlayerMoveRef.current = { from: move.from, to: move.to };
+
+          // Real-time WebSocket Move Broadcast in Online Mode
+          if (gameMode === 'online' && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({
+              action: 'move',
+              from_square: move.from,
+              to_square: move.to + (move.promotion || ''),
+            }));
+          }
 
           // Secret Move Easter Egg: Knight moves to f3/c3 or f6/c6
           if (!secretDiscovered && move.piece === 'n') {
@@ -448,17 +548,29 @@ export default function ChessBoard({
                   <User className="w-5 h-5 text-blue-400" />
                 )}
               </div>
-              <span className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-[#0f172a]" />
+              <span className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-[#0f172a] ${
+                gameMode === 'online' 
+                  ? (onlineConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500')
+                  : 'bg-emerald-500'
+              }`} />
             </div>
 
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] tracking-wider uppercase font-bold text-amber-400 font-mono">
-                  {gameMode === 'computer' ? `LEVEL 6 · ${aiDifficulty.toUpperCase()}` : 'ONLINE PLAYER'}
+                <span className="text-[10px] tracking-wider uppercase font-bold text-amber-400 font-mono flex items-center gap-1.5">
+                  {gameMode === 'computer' 
+                    ? `LEVEL 6 · ${aiDifficulty.toUpperCase()}` 
+                    : gameMode === 'online'
+                    ? '● LIVE 1v1 OPPONENT'
+                    : 'PLAY VS FRIEND'}
                 </span>
               </div>
               <p className="text-xs sm:text-sm font-extrabold text-white leading-tight">
-                {gameMode === 'computer' ? 'Computer' : (player2Name || 'Challenger_Pro')}
+                {gameMode === 'computer'
+                  ? 'Computer'
+                  : gameMode === 'online'
+                  ? (playerColor === 'w' ? (player2Name || 'Opponent') : (player1Name || 'Opponent'))
+                  : (player2Name || 'Friend (Player 2)')}
               </p>
             </div>
           </div>
@@ -469,6 +581,11 @@ export default function ChessBoard({
               <span className="text-xs text-amber-400 font-semibold flex items-center gap-1.5 animate-pulse bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
                 Thinking...
+              </span>
+            ) : gameMode === 'online' ? (
+              <span className="text-[11px] text-emerald-300 font-bold px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                {onlineConnected ? 'Live Synchronized' : 'Connecting Arena...'}
               </span>
             ) : (
               <span className="text-[11px] text-slate-300 font-medium px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700 flex items-center gap-1.5">

@@ -23,8 +23,16 @@ export default function Landing({ onStartGame, onNavigate }) {
     {
       id: 'online',
       title: 'Play Online',
-      desc: 'Compete with real chess players around the world in rated matches.',
-      icon: <Users className="w-8 h-8 text-[#7e91ab]" />,
+      desc: 'Compete in live 1v1 multiplayer matches or challenge your online friends in real-time.',
+      icon: (
+        <div className="relative">
+          <Users className="w-8 h-8 text-blue-400" />
+          <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500/20 rounded-full flex items-center justify-center">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+          </div>
+        </div>
+      ),
+      badge: 'Players Online Now • Active',
       isFeatured: false,
     },
     {
@@ -114,8 +122,16 @@ export default function Landing({ onStartGame, onNavigate }) {
               >
                 {/* Top Icon and Content */}
                 <div className="space-y-4">
-                  <div className="w-12 h-12 rounded-xl flex items-center">
-                    {mode.icon}
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-xl flex items-center">
+                      {mode.icon}
+                    </div>
+                    {mode.badge && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-[10px] font-bold text-emerald-300">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                        {mode.badge}
+                      </span>
+                    )}
                   </div>
 
                   <div>

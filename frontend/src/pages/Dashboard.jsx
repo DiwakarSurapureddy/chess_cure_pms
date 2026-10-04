@@ -4,19 +4,41 @@ import { useAuth } from '../context/AuthContext';
 import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X, Crown } from 'lucide-react';
 
 export default function Dashboard({ initialMode = 'computer', onNavigate }) {
-  const { user, recordGameResult } = useAuth();
-  const [mode, setMode] = useState(initialMode);
+  const { user, recordGameResult, activeOnlineMatch, setActiveOnlineMatch } = useAuth();
+  const [mode, setMode] = useState(activeOnlineMatch ? 'online' : initialMode);
   const [aiLevel, setAiLevel] = useState('intermediate');
-  const [selectedSide, setSelectedSide] = useState('w'); // 'w' | 'b'
-  const [friendName, setFriendName] = useState('Friend');
+  const [selectedSide, setSelectedSide] = useState(activeOnlineMatch?.playerColor || 'w'); // 'w' | 'b'
+  const [friendName, setFriendName] = useState(activeOnlineMatch?.opponentName || 'Friend');
   const [secretUnlocked, setSecretUnlocked] = useState(false);
   const [showSecretModal, setShowSecretModal] = useState(false);
 
   useEffect(() => {
-    if (initialMode) {
+    if (initialMode && initialMode !== 'online') {
+      setActiveOnlineMatch(null);
+      setMode(initialMode);
+    } else if (activeOnlineMatch) {
+      setMode('online');
+      setSelectedSide(activeOnlineMatch.playerColor || 'w');
+      setFriendName(activeOnlineMatch.opponentName || 'Online Opponent');
+    } else if (initialMode) {
       setMode(initialMode);
     }
-  }, [initialMode]);
+  }, [initialMode, activeOnlineMatch]);
+
+  const handleSwitchToComputer = () => {
+    setActiveOnlineMatch(null);
+    setMode('computer');
+    setSelectedSide('w');
+  };
+
+  const handleSwitchToTwoPlayer = () => {
+    setActiveOnlineMatch(null);
+    setMode('two-player');
+  };
+
+  const handleSwitchToOnline = () => {
+    setMode('online');
+  };
 
   const handleSecretMove = (move) => {
     setSecretUnlocked(true);
@@ -26,12 +48,12 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   const handleGameOver = (resultData) => {
     const oppName = mode === 'computer'
       ? 'Computer'
-      : (friendName || 'Friend (Player 2)');
+      : (activeOnlineMatch?.opponentName || friendName || 'Friend (Player 2)');
 
     recordGameResult({
       id: 'match_' + Date.now(),
       opponent: oppName,
-      mode: mode === 'computer' ? 'vs Computer' : 'Play vs Friends',
+      mode: mode === 'computer' ? 'vs Computer' : mode === 'online' ? 'Online 1v1 Match' : 'Play vs Friends',
       result: resultData.result,
       method: resultData.method,
       moves: resultData.moves,
@@ -41,34 +63,81 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   };
 
   return (
-    <div className="w-full max-w-6xl mx-auto px-4 py-6 space-y-6">
-      {/* Top Game Controls Bar */}
+    <div className="w-full max-w-6xl mx-auto px-4 py-6 space-y-4">
+      {/* Active Online Match Alert Banner (When an online match is active) */}
+      {mode === 'online' && activeOnlineMatch && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 px-5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-[#0e182c] to-[#0e182c] border border-amber-500/50 shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300">
+              <Swords className="w-5 h-5 text-amber-400 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-extrabold text-white">
+                  Live Match vs {activeOnlineMatch.opponentName}
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                  Live Online
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-400/90 font-mono">
+                You play: {activeOnlineMatch.playerColor === 'w' ? 'White (♔) - Moves First' : 'Black (♚) - Moves Second'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleSwitchToComputer}
+            className="py-1.5 px-3.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 text-xs font-bold transition-colors cursor-pointer"
+          >
+            Exit Live Match
+          </button>
+        </div>
+      )}
+
+      {/* Top Game Controls Bar: ALWAYS keeps all 3 Mode buttons visible! */}
       <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-3xl bg-[#0c1424] border border-[#d4af37]/35 shadow-xl">
         
-        {/* Left: Mode Selector */}
-        <div className="flex items-center gap-2">
+        {/* Left: The 3 Main Game Modes (Always visible!) */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Button 1: vs Computer */}
           <button
-            onClick={() => setMode('computer')}
-            className={`py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
+            onClick={handleSwitchToComputer}
+            className={`py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
               mode === 'computer'
                 ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-md shadow-amber-500/20'
-                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white'
             }`}
           >
             <Bot className="w-4 h-4" />
             <span>vs Computer</span>
           </button>
 
+          {/* Button 2: Play vs Friends (Pass & Play on same screen) */}
           <button
-            onClick={() => setMode('two-player')}
-            className={`py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
+            onClick={handleSwitchToTwoPlayer}
+            className={`py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
               mode === 'two-player'
                 ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-md shadow-amber-500/20'
-                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white'
             }`}
           >
             <Users className="w-4 h-4" />
             <span>Play vs Friends</span>
+          </button>
+
+          {/* Button 3: Play Online */}
+          <button
+            onClick={handleSwitchToOnline}
+            className={`py-2 px-3.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              mode === 'online'
+                ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-md shadow-amber-500/20'
+                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white'
+            }`}
+          >
+            <Swords className="w-4 h-4" />
+            <span>Play Online</span>
           </button>
         </div>
 
@@ -78,7 +147,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
           
           <button
             onClick={() => setSelectedSide('w')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer ${
               selectedSide === 'w'
                 ? 'bg-gradient-to-r from-amber-200 to-amber-400 text-black shadow-lg shadow-amber-500/30 ring-1 ring-amber-200'
                 : 'text-slate-400 hover:text-white'
@@ -91,7 +160,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
 
           <button
             onClick={() => setSelectedSide('b')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer ${
               selectedSide === 'b'
                 ? 'bg-gradient-to-r from-slate-800 to-slate-950 text-white border border-amber-400 shadow-lg shadow-amber-500/30 ring-1 ring-amber-400'
                 : 'text-slate-400 hover:text-white'
@@ -137,6 +206,18 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
           </div>
         )}
 
+        {mode === 'online' && activeOnlineMatch && (
+          <button
+            onClick={() => {
+              setActiveOnlineMatch(null);
+              setMode('computer');
+            }}
+            className="py-1.5 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-bold transition-colors cursor-pointer"
+          >
+            Exit Live Match
+          </button>
+        )}
+
         {/* Secret Chat Indicator Badge */}
         {secretUnlocked && (
           <button
@@ -151,12 +232,13 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
 
       {/* Main Playable Chessboard with selected side and mode */}
       <ChessBoard
-        key={`${mode}-${selectedSide}-${friendName}`}
+        key={`${mode}-${selectedSide}-${friendName}-${activeOnlineMatch?.gameId || 'offline'}`}
         gameMode={mode}
         aiDifficulty={aiLevel}
         initialPlayerColor={selectedSide}
-        player1Name={user?.username || user?.name || 'Player 1'}
-        player2Name={friendName || 'Friend (Player 2)'}
+        player1Name={activeOnlineMatch ? (activeOnlineMatch.playerColor === 'w' ? user?.username : activeOnlineMatch.opponentName) : (user?.username || user?.name || 'Player 1')}
+        player2Name={activeOnlineMatch ? (activeOnlineMatch.playerColor === 'w' ? activeOnlineMatch.opponentName : user?.username) : (friendName || 'Friend (Player 2)')}
+        onlineGameId={activeOnlineMatch?.gameId}
         onSecretMoveDetected={handleSecretMove}
         onGameOver={handleGameOver}
         onNavigate={onNavigate}

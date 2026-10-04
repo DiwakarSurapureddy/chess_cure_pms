@@ -345,6 +345,117 @@ export const api = {
     if (!res.ok) throw new Error(data.detail || data.error || `Player #${gameId} not found`);
     return data;
   },
+
+  /**
+   * Send friend request to player by Game ID or username
+   */
+  async sendFriendRequest(token, { target_player_id, target_username }) {
+    if (!token) throw new Error('You must be signed in to send friend requests.');
+    const res = await fetch(`${BASE_URL}/friends/request`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ target_player_id, target_username }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send friend request.');
+    return data;
+  },
+
+  /**
+   * Get incoming friend notifications
+   */
+  async getFriendNotifications(token) {
+    if (!token) return { count: 0, notifications: [] };
+    const res = await fetch(`${BASE_URL}/friends/notifications`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json().catch(() => ({ count: 0, notifications: [] }));
+    return data;
+  },
+
+  /**
+   * Respond to friend request (accept / decline)
+   */
+  async respondFriendRequest(token, { request_id, action }) {
+    if (!token) throw new Error('Authentication required.');
+    const res = await fetch(`${BASE_URL}/friends/respond`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ request_id, action }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || 'Failed to respond to request.');
+    return data;
+  },
+
+  /**
+   * Get list of accepted friends
+   */
+  async getFriendsList(token) {
+    if (!token) return { count: 0, friends: [] };
+    const res = await fetch(`${BASE_URL}/friends/list`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json().catch(() => ({ count: 0, friends: [] }));
+    return data;
+  },
+
+  /**
+   * Send online match challenge to friend
+   */
+  async sendMatchChallenge(token, { target_player_id, target_username }) {
+    if (!token) throw new Error('Authentication required to challenge players.');
+    const res = await fetch(`${BASE_URL}/friends/challenge`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ target_player_id, target_username }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send match challenge.');
+    return data;
+  },
+
+  /**
+   * Respond to incoming match challenge
+   */
+  async respondMatchChallenge(token, { challenge_id, action }) {
+    if (!token) throw new Error('Authentication required.');
+    const res = await fetch(`${BASE_URL}/friends/challenge/respond`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ challenge_id, action }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || 'Failed to respond to challenge.');
+    return data;
+  },
+
+  /**
+   * Check status of match challenge
+   */
+  async getChallengeStatus(token, gameId) {
+    if (!token) return { success: false, status: 'unknown' };
+    const res = await fetch(`${BASE_URL}/friends/challenge/status/${encodeURIComponent(gameId)}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json().catch(() => ({ success: false, status: 'unknown' }));
+    return data;
+  },
 };
 
 export default api;

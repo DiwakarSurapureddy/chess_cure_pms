@@ -22,7 +22,14 @@ import {
 import { useAuth } from '../../context/AuthContext';
 
 export default function Navbar({ activeTab = 'home', onTabChange }) {
-  const { user, logout } = useAuth();
+  const { 
+    user, 
+    logout, 
+    friendNotifications = [], 
+    respondFriendRequest,
+    respondMatchChallenge,
+    setActiveOnlineMatch
+  } = useAuth();
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -249,71 +256,115 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
             <div className="relative" ref={notifRef}>
               <button
                 onClick={() => setNotifOpen(!notifOpen)}
-                className="nav-round-action-btn w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-slate-300 hover:text-amber-300 relative group focus:outline-none"
+                className="nav-round-action-btn w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-slate-300 hover:text-amber-300 relative group focus:outline-none cursor-pointer"
                 title="Notifications"
               >
                 <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4 group-hover:scale-110 transition-transform" />
-                {/* Red Notification Dot with Count 1 (Matches Image 1) */}
-                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-rose-600 rounded-full flex items-center justify-center text-[9px] font-black text-white shadow-[0_0_8px_#f43f5e] ring-2 ring-[#0a1120]">
-                  1
-                </span>
+                {friendNotifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-600 rounded-full flex items-center justify-center text-[9px] font-black text-white shadow-[0_0_8px_#f43f5e] ring-2 ring-[#0a1120] animate-pulse">
+                    {friendNotifications.length}
+                  </span>
+                )}
               </button>
 
-              {/* Notifications Popover (Guaranteed unclipped & visible) */}
+              {/* Notifications Popover */}
               {notifOpen && (
-                <div className="absolute right-0 mt-3 w-72 sm:w-80 rounded-2xl bg-[#091122] border-2 border-[#d4af37]/60 shadow-[0_20px_60px_rgba(0,0,0,0.95),0_0_30px_rgba(245,158,11,0.3)] py-2.5 z-[100] animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="absolute right-0 mt-3 w-72 sm:w-84 rounded-2xl bg-[#091122] border-2 border-[#d4af37]/60 shadow-[0_20px_60px_rgba(0,0,0,0.95),0_0_30px_rgba(245,158,11,0.3)] py-2.5 z-[100] animate-in fade-in slide-in-from-top-2 duration-150">
                   <div className="px-4 py-2 border-b border-slate-800 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Bell className="w-4 h-4 text-amber-400" />
                       <span className="text-xs font-bold text-white">Notifications</span>
                     </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 font-semibold">
-                      1 New
-                    </span>
+                    {friendNotifications.length > 0 ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 font-semibold">
+                        {friendNotifications.length} New Request{friendNotifications.length > 1 ? 's' : ''}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-500">All caught up</span>
+                    )}
                   </div>
                   
-                  <div className="divide-y divide-slate-800/70 max-h-64 overflow-y-auto">
-                    {notificationsList.map((item) => (
-                      <div key={item.id} className="p-3 hover:bg-slate-800/50 transition-colors">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                            {item.unread && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />}
-                            {item.title}
-                          </span>
-                          <span className="text-[10px] text-slate-500 font-mono">{item.time}</span>
-                        </div>
-                        <p className="text-[11px] text-slate-300 mt-1 leading-snug">{item.desc}</p>
-                        
-                        {item.action && (
-                          <div className="mt-2 flex items-center gap-2">
-                            <button
-                              onClick={() => {
-                                handleNavClick('play');
-                                setNotifOpen(false);
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] uppercase shadow-sm"
-                            >
-                              Accept Match
-                            </button>
-                            <button
-                              onClick={() => setNotifOpen(false)}
-                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px]"
-                            >
-                              Decline
-                            </button>
+                  <div className="divide-y divide-slate-800/70 max-h-72 overflow-y-auto">
+                    {friendNotifications.length > 0 ? (
+                      friendNotifications.map((notif) => {
+                        const isMatch = notif.type === 'match_challenge';
+                        return (
+                          <div key={notif.id} className="p-3.5 hover:bg-slate-800/50 transition-colors space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full ${isMatch ? 'bg-amber-400' : 'bg-emerald-400'} animate-ping`} />
+                                {isMatch ? '⚔️ Match Challenge' : '🤝 Friend Request'}
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-mono">Just now</span>
+                            </div>
+                            <p className="text-xs text-slate-300 leading-snug">
+                              <strong className="text-amber-400 font-bold">{notif.senderUsername}</strong>{' '}
+                              <span className="text-amber-300/80 font-mono text-[11px]">#{notif.senderPlayerId}</span>{' '}
+                              {isMatch ? 'challenged you to a Live Online Match!' : 'sent you a friend invitation!'} (Elo: <strong className="text-white">{notif.senderRating}</strong>)
+                            </p>
+                            
+                            <div className="flex items-center gap-2 pt-1">
+                              {isMatch ? (
+                                <>
+                                  <button
+                                    onClick={async () => {
+                                      const res = await respondMatchChallenge(notif.id, 'accept');
+                                      if (res?.success) {
+                                        setActiveOnlineMatch({
+                                          gameId: res.gameId,
+                                          player1: res.player1,
+                                          player2: res.player2,
+                                          playerColor: 'b',
+                                          opponentName: res.player1,
+                                        });
+                                        handleNavClick('play');
+                                      }
+                                    }}
+                                    className="px-3 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black font-extrabold text-[10px] uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer transition-all"
+                                  >
+                                    <Swords className="w-3 h-3" />
+                                    <span>Accept & Play</span>
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      await respondMatchChallenge(notif.id, 'decline');
+                                    }}
+                                    className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-300 text-[10px] font-bold border border-slate-700 cursor-pointer transition-colors"
+                                  >
+                                    <span>✕ Decline</span>
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={async () => {
+                                      await respondFriendRequest(notif.id, 'accept');
+                                    }}
+                                    className="px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-[10px] uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer transition-colors"
+                                  >
+                                    <span>✓ Accept</span>
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      await respondFriendRequest(notif.id, 'decline');
+                                    }}
+                                    className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-300 text-[10px] font-bold border border-slate-700 cursor-pointer transition-colors"
+                                  >
+                                    <span>✕ Decline</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
-                        )}
+                        );
+                      })
+                    ) : (
+                      <div className="p-6 text-center text-xs text-slate-400 space-y-1">
+                        <Bell className="w-6 h-6 text-slate-600 mx-auto mb-1.5 opacity-60" />
+                        <p className="font-semibold text-slate-300">No new notifications</p>
+                        <p className="text-[10px] text-slate-500">Incoming friend requests will appear here.</p>
                       </div>
-                    ))}
-                  </div>
-
-                  <div className="px-3 pt-2 border-t border-slate-800/80 text-center">
-                    <button
-                      onClick={() => setNotifOpen(false)}
-                      className="text-[11px] text-amber-400/90 hover:text-amber-300 font-semibold"
-                    >
-                      Mark all as read
-                    </button>
+                    )}
                   </div>
                 </div>
               )}

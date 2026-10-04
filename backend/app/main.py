@@ -9,10 +9,12 @@ from app.database import engine, Base, SessionLocal
 from app.models.user import User
 from app.models.game import CareerGame
 from app.models.profile import UserPreference
+from app.models.friend import FriendRequest
 from app.services.auth_service import seed_default_users
 from app.routers.auth import router as auth_router
 from app.routers.settings import router as settings_router
 from app.routers.profile import router as profile_router
+from app.routers.friends import router as friends_router
 from app.routers import challenges, games
 from app.portal import get_portal_html
 from app.models.game import GameDB, MoveRequest
@@ -93,6 +95,11 @@ app.include_router(settings_router, prefix="/settings")
 # Include Profile Router
 app.include_router(profile_router, prefix="/api/profile")
 app.include_router(profile_router, prefix="/profile")
+
+# Include Friends & Notifications Router
+app.include_router(friends_router, prefix="/api/friends")
+app.include_router(friends_router, prefix="/friends")
+
 app.include_router(games.router)
 app.include_router(challenges.router)
 

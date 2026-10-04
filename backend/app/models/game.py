@@ -92,12 +92,14 @@ class Game:
         if self.status == "completed":
             return False, "Game is already completed"
 
+        uci_str = from_square + to_square
         try:
-            move = chess.Move.from_uci(
-                from_square + to_square
-            )
+            move = chess.Move.from_uci(uci_str)
         except ValueError:
-            return False, "Invalid chess square"
+            try:
+                move = chess.Move.from_uci(uci_str + "q")
+            except ValueError:
+                return False, "Invalid chess square"
 
         if move not in self.board.legal_moves:
             return False, "Illegal chess move"

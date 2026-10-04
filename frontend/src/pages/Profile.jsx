@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import {
@@ -33,7 +33,18 @@ import {
 } from 'lucide-react';
 
 export default function Profile({ onNavigate }) {
-  const { user, token, careerGames = [], logout, updateUserProfile } = useAuth();
+  const { 
+    user, 
+    token, 
+    careerGames = [], 
+    logout, 
+    updateUserProfile,
+    friendsList = [],
+    sendFriendRequest,
+    sendMatchChallenge,
+    checkChallengeStatus,
+    setActiveOnlineMatch,
+  } = useAuth();
 
   const [dbStats, setDbStats] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -46,14 +57,15 @@ export default function Profile({ onNavigate }) {
   const [searchedPlayer, setSearchedPlayer] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
-  const [friendsList, setFriendsList] = useState(() => {
-    try {
-      const saved = localStorage.getItem('chess_cure_friends');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [friendActionLoading, setFriendActionLoading] = useState(false);
+  const [friendRequestMsg, setFriendRequestMsg] = useState('');
+
+  // Online Match Challenge State
+  const [challengingFriend, setChallengingFriend] = useState(null);
+  const [challengeGameId, setChallengeGameId] = useState(null);
+  const [challengeStatus, setChallengeStatus] = useState(''); // 'sending' | 'waiting' | 'accepted' | 'declined' | 'error'
+  const [challengeError, setChallengeError] = useState('');
+  const challengePollRef = useRef(null);
 
   useEffect(() => {
     if (token) {
@@ -88,22 +100,91 @@ export default function Profile({ onNavigate }) {
     }
   };
 
-  const handleAddFriend = (friend) => {
-    const exists = friendsList.some((f) => f.playerId === friend.playerId);
-    let updated;
-    if (exists) {
-      updated = friendsList.filter((f) => f.playerId !== friend.playerId);
-    } else {
-      updated = [...friendsList, friend];
+  const handleAddFriend = async (friend) => {
+    if (!friend?.playerId) return;
+    setFriendActionLoading(true);
+    setFriendRequestMsg('');
+    try {
+      const res = await sendFriendRequest(friend.playerId);
+      setFriendRequestMsg(res.message || 'Friend request sent successfully!');
+      setTimeout(() => setFriendRequestMsg(''), 4500);
+    } catch (err) {
+      setFriendRequestMsg(err.message || 'Failed to send request.');
+      setTimeout(() => setFriendRequestMsg(''), 4500);
+    } finally {
+      setFriendActionLoading(false);
     }
-    setFriendsList(updated);
-    localStorage.setItem('chess_cure_friends', JSON.stringify(updated));
   };
 
-  const handleChallengePlayer = (player) => {
-    if (onNavigate) {
-      onNavigate('home');
+  useEffect(() => {
+    return () => {
+      if (challengePollRef.current) clearInterval(challengePollRef.current);
+    };
+  }, []);
+
+  const handleChallengePlayer = async (player) => {
+    if (!player?.playerId) return;
+    setChallengingFriend(player);
+    setChallengeStatus('sending');
+    setChallengeError('');
+    try {
+      const res = await sendMatchChallenge(player.playerId);
+      if (res?.success && res.gameId) {
+        setChallengeGameId(res.gameId);
+        setChallengeStatus('waiting');
+
+        // Poll for acceptance every 1.5s
+        if (challengePollRef.current) clearInterval(challengePollRef.current);
+        challengePollRef.current = setInterval(async () => {
+          try {
+            const statusRes = await checkChallengeStatus(res.gameId);
+            if (statusRes?.status === 'accepted') {
+              clearInterval(challengePollRef.current);
+              challengePollRef.current = null;
+              setChallengeStatus('accepted');
+              
+              setActiveOnlineMatch({
+                gameId: res.gameId,
+                player1: user?.username || 'Player 1',
+                player2: player.username || player.name,
+                playerColor: 'w', // Challenger plays White
+                opponentName: player.username || player.name,
+              });
+
+              setTimeout(() => {
+                setChallengingFriend(null);
+                if (onNavigate) onNavigate('play');
+              }, 1200);
+            } else if (statusRes?.status === 'declined') {
+              clearInterval(challengePollRef.current);
+              challengePollRef.current = null;
+              setChallengeStatus('declined');
+              setTimeout(() => {
+                setChallengingFriend(null);
+              }, 3000);
+            }
+          } catch (pollErr) {
+            console.warn('Poll error:', pollErr);
+          }
+        }, 1500);
+      } else {
+        setChallengeError(res?.message || 'Failed to challenge friend.');
+        setChallengeStatus('error');
+      }
+    } catch (err) {
+      setChallengeError(err.message || 'Failed to challenge friend.');
+      setChallengeStatus('error');
     }
+  };
+
+  const handleCancelChallenge = () => {
+    if (challengePollRef.current) {
+      clearInterval(challengePollRef.current);
+      challengePollRef.current = null;
+    }
+    setChallengingFriend(null);
+    setChallengeGameId(null);
+    setChallengeStatus('');
   };
 
   const handleOpenEdit = () => {
@@ -436,10 +517,21 @@ export default function Profile({ onNavigate }) {
               <button
                 type="button"
                 onClick={() => handleAddFriend(searchedPlayer)}
-                className="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 hover:text-white transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                disabled={friendActionLoading || friendsList.some(f => f.playerId === searchedPlayer.playerId)}
+                className="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 hover:text-white transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-60"
               >
-                <UserPlus className="w-3.5 h-3.5 text-amber-400" />
-                <span>{friendsList.some(f => f.playerId === searchedPlayer.playerId) ? 'Friend Added' : 'Add Friend'}</span>
+                {friendActionLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                ) : (
+                  <UserPlus className="w-3.5 h-3.5 text-amber-400" />
+                )}
+                <span>
+                  {friendsList.some(f => f.playerId === searchedPlayer.playerId)
+                    ? 'Already Friends ✓'
+                    : friendActionLoading
+                    ? 'Sending...'
+                    : 'Add Friend'}
+                </span>
               </button>
               <button
                 type="button"
@@ -450,6 +542,72 @@ export default function Profile({ onNavigate }) {
                 <span>Challenge to Game</span>
               </button>
             </div>
+          </div>
+        )}
+
+        {friendRequestMsg && (
+          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-2 animate-fade-in">
+            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>{friendRequestMsg}</span>
+          </div>
+        )}
+      </div>
+
+      {/* ================= ACCEPTED FRIENDS & NETWORK SECTION ================= */}
+      <div className="rounded-3xl bg-[#0c1524] border border-amber-500/30 p-6 shadow-xl space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <Users className="w-5 h-5 text-amber-400" />
+            <h3 className="text-lg font-bold text-white">My Friends</h3>
+            <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold border border-amber-500/30">
+              {friendsList.length}
+            </span>
+          </div>
+          <span className="text-xs text-slate-400">Accepted Friends</span>
+        </div>
+
+        {friendsList.length === 0 ? (
+          <div className="p-6 rounded-2xl bg-black/30 border border-slate-800 text-center text-slate-400 text-xs">
+            No friends added yet. Enter any player's 6-digit Game ID above and click &quot;Add Friend&quot; to send an invitation!
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {friendsList.map((friend) => (
+              <div
+                key={friend.id || friend.playerId}
+                className="p-4 rounded-2xl bg-gradient-to-b from-[#0e192c] to-[#080d17] border border-slate-800 hover:border-amber-500/50 transition-all flex items-center justify-between gap-3 shadow-md"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 font-bold text-sm">
+                    {friend.username ? friend.username[0].toUpperCase() : 'F'}
+                  </div>
+                  <div>
+                    {/* 1. Friend Name */}
+                    <h4 className="text-sm font-extrabold text-white leading-tight">
+                      {friend.username || friend.name}
+                    </h4>
+                    {/* 2. Game ID */}
+                    <p className="text-[11px] text-amber-400 font-mono font-bold mt-0.5">
+                      Game ID: #{friend.playerId}
+                    </p>
+                    {/* 3. Elo Rating */}
+                    <p className="text-[11px] text-slate-400 font-semibold">
+                      Elo Rating: <span className="text-slate-200 font-bold">{friend.rating || 1200}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleChallengePlayer(friend)}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black font-bold text-xs border border-amber-500/40 transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                  title="Challenge Friend to Match"
+                >
+                  <Swords className="w-3.5 h-3.5" />
+                  <span>Play</span>
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -637,6 +795,95 @@ export default function Profile({ onNavigate }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Match Challenge Waiting Modal */}
+      {challengingFriend && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
+          <div className="relative w-full max-w-md rounded-3xl bg-[#0b1322] border-2 border-amber-500/50 p-6 shadow-[0_0_50px_rgba(245,158,11,0.25)] space-y-5 text-center">
+            
+            <button
+              onClick={handleCancelChallenge}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-xl hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Friend Avatar & Challenge Badge */}
+            <div className="relative w-16 h-16 mx-auto">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 text-black flex items-center justify-center text-xl font-black shadow-lg shadow-amber-500/30">
+                {challengingFriend.username ? challengingFriend.username[0].toUpperCase() : 'F'}
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-slate-900 border-2 border-amber-400 flex items-center justify-center text-amber-400">
+                <Swords className="w-3.5 h-3.5 animate-pulse" />
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-xl font-black text-white flex items-center justify-center gap-2">
+                <span>Challenge vs</span>
+                <span className="text-amber-400">{challengingFriend.username || challengingFriend.name}</span>
+              </h3>
+              <p className="text-xs text-amber-300 font-mono mt-0.5">
+                Game ID: #{challengingFriend.playerId} • Elo: {challengingFriend.rating || 1200}
+              </p>
+            </div>
+
+            {/* Challenge Live Status Message */}
+            <div className="p-4 rounded-2xl bg-[#070c16] border border-slate-800 space-y-2">
+              {challengeStatus === 'sending' && (
+                <div className="flex items-center justify-center gap-2 text-xs text-amber-300">
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                  <span>Dispatching match challenge...</span>
+                </div>
+              )}
+
+              {challengeStatus === 'waiting' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-center gap-2 text-xs text-emerald-400 font-bold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    <span>Request Delivered!</span>
+                  </div>
+                  <p className="text-xs text-slate-300">
+                    Waiting for <strong className="text-amber-300">{challengingFriend.username}</strong> to click <strong className="text-amber-400">"Accept & Play"</strong> in their notification bell...
+                  </p>
+                  <div className="flex justify-center pt-1">
+                    <div className="w-8 h-8 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
+                  </div>
+                </div>
+              )}
+
+              {challengeStatus === 'accepted' && (
+                <div className="text-emerald-400 font-bold text-sm space-y-1 animate-in zoom-in-95">
+                  <p>🎉 Challenge Accepted!</p>
+                  <p className="text-xs text-slate-300 font-normal">Starting match... You play as White (♔).</p>
+                </div>
+              )}
+
+              {challengeStatus === 'declined' && (
+                <div className="text-rose-400 font-bold text-xs space-y-1">
+                  <p>Match challenge was declined by opponent.</p>
+                </div>
+              )}
+
+              {challengeStatus === 'error' && (
+                <div className="text-rose-400 text-xs">
+                  {challengeError || 'Failed to connect challenge.'}
+                </div>
+              )}
+            </div>
+
+            {challengeStatus !== 'accepted' && (
+              <button
+                type="button"
+                onClick={handleCancelChallenge}
+                className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors"
+              >
+                Cancel Challenge
+              </button>
+            )}
           </div>
         </div>
       )}

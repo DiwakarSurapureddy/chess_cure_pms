@@ -78,6 +78,81 @@ export function AuthProvider({ children }) {
     }
   });
 
+  // Friends & Notifications state
+  const [friendsList, setFriendsList] = useState([]);
+  const [friendNotifications, setFriendNotifications] = useState([]);
+
+  const fetchFriendsAndNotifications = async (authToken = token) => {
+    const curToken = authToken || localStorage.getItem(TOKEN_KEY);
+    if (!curToken || curToken === 'guest_local_token') return;
+    try {
+      const [notifRes, friendsRes] = await Promise.all([
+        api.getFriendNotifications(curToken).catch(() => ({ count: 0, notifications: [] })),
+        api.getFriendsList(curToken).catch(() => ({ count: 0, friends: [] }))
+      ]);
+      if (notifRes?.notifications) {
+        setFriendNotifications(notifRes.notifications);
+      }
+      if (friendsRes?.friends) {
+        setFriendsList(friendsRes.friends);
+      }
+    } catch (e) {
+      console.warn('Friends sync warning:', e.message);
+    }
+  };
+
+  useEffect(() => {
+    if (token && token !== 'guest_local_token') {
+      fetchFriendsAndNotifications(token);
+      const interval = setInterval(() => {
+        fetchFriendsAndNotifications(token);
+      }, 7000);
+      return () => clearInterval(interval);
+    }
+  }, [token]);
+
+  const sendFriendRequest = async (targetPlayerId) => {
+    const curToken = token || localStorage.getItem(TOKEN_KEY);
+    if (!curToken) throw new Error('Please sign in to send friend requests.');
+    if (curToken === 'guest_local_token') {
+      throw new Error('Guest players cannot send friend requests. Please sign in or register.');
+    }
+    const res = await api.sendFriendRequest(curToken, { target_player_id: targetPlayerId });
+    await fetchFriendsAndNotifications(curToken);
+    return res;
+  };
+
+  const respondFriendRequest = async (requestId, action) => {
+    const curToken = token || localStorage.getItem(TOKEN_KEY);
+    if (!curToken) throw new Error('Authentication required.');
+    const res = await api.respondFriendRequest(curToken, { request_id: requestId, action });
+    await fetchFriendsAndNotifications(curToken);
+    return res;
+  };
+
+  const [activeOnlineMatch, setActiveOnlineMatch] = useState(null);
+
+  const sendMatchChallenge = async (targetPlayerId) => {
+    const curToken = token || localStorage.getItem(TOKEN_KEY);
+    if (!curToken) throw new Error('Please sign in to challenge friends.');
+    const res = await api.sendMatchChallenge(curToken, { target_player_id: targetPlayerId });
+    return res;
+  };
+
+  const respondMatchChallenge = async (challengeId, action) => {
+    const curToken = token || localStorage.getItem(TOKEN_KEY);
+    if (!curToken) throw new Error('Authentication required.');
+    const res = await api.respondMatchChallenge(curToken, { challenge_id: challengeId, action });
+    await fetchFriendsAndNotifications(curToken);
+    return res;
+  };
+
+  const checkChallengeStatus = async (gameId) => {
+    const curToken = token || localStorage.getItem(TOKEN_KEY);
+    if (!curToken) return { status: 'unknown' };
+    return await api.getChallengeStatus(curToken, gameId);
+  };
+
   // Initialize Facebook SDK with App ID 1608757584075667
   useEffect(() => {
     if (!window.FB) {
@@ -524,6 +599,16 @@ export function AuthProvider({ children }) {
     updatePreferences: updatePreferencesHandler,
     changePassword: changePasswordHandler,
     recordGameResult,
+    friendsList,
+    friendNotifications,
+    sendFriendRequest,
+    respondFriendRequest,
+    fetchFriendsAndNotifications,
+    activeOnlineMatch,
+    setActiveOnlineMatch,
+    sendMatchChallenge,
+    respondMatchChallenge,
+    checkChallengeStatus,
     clearError,
   };
 
