@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SecretChatProvider } from './context/SecretChatContext';
+import SecretChatModal from './components/chat/SecretChatModal';
 import Navbar from './components/layout/Navbar';
 import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
@@ -408,7 +410,10 @@ function AppContent() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <SecretChatProvider>
+        <AppContent />
+        <SecretChatModal />
+      </SecretChatProvider>
     </AuthProvider>
   );
 }

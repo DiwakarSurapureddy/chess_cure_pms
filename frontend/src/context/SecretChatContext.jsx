@@ -184,7 +184,22 @@ export function SecretChatProvider({ children }) {
 export function useSecretChat() {
   const context = useContext(SecretChatContext);
   if (!context) {
-    throw new Error('useSecretChat must be used within a SecretChatProvider');
+    return {
+      isChatUnlocked: false,
+      timeRemaining: 120,
+      formattedTime: '02:00',
+      isChatModalOpen: false,
+      unlockReason: '',
+      messages: [],
+      isTyping: false,
+      expiredNotice: false,
+      unlockSecretChat: () => {},
+      openChatModal: () => {},
+      closeChatModal: () => {},
+      lockSecretChat: () => {},
+      sendMessage: () => {},
+      formatTime: () => '02:00',
+    };
   }
   return context;
 }
