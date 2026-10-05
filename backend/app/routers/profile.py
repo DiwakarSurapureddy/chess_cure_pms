@@ -17,8 +17,19 @@ from app.schemas.profile import (
 router = APIRouter(tags=["Profile"])
 
 @router.get("/me")
-def get_my_profile(current_user: User = Depends(get_current_user)):
-    """[GET] Retrieves authenticated user profile."""
+def get_my_profile(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """[GET] Retrieves authenticated user profile with real-time synchronized stats."""
+    user_games = db.query(CareerGame).filter(CareerGame.user_id == current_user.id).all()
+    real_wins = sum(1 for g in user_games if g.result.lower() == "won")
+    real_losses = sum(1 for g in user_games if g.result.lower() == "lost")
+    real_draws = sum(1 for g in user_games if g.result.lower() in ["draw", "stalemate"])
+    if (current_user.wins != real_wins or current_user.losses != real_losses or current_user.draws != real_draws):
+        current_user.wins = real_wins
+        current_user.losses = real_losses
+        current_user.draws = real_draws
+        db.commit()
+        db.refresh(current_user)
+
     return {
         "success": True,
         "user": current_user.to_dict()
@@ -59,25 +70,24 @@ def update_my_profile(
 
 @router.get("/stats", response_model=GameStatsResponse)
 def get_user_stats(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """[GET] Returns aggregated game statistics backed by database records."""
-    # Count games in database for this user
+    """[GET] Returns real-time aggregated game statistics strictly backed by database CareerGame records."""
     user_games = db.query(CareerGame).filter(CareerGame.user_id == current_user.id).all()
     
-    # Calculate counts either from games table or user profile defaults
-    if len(user_games) > 0:
-        wins = sum(1 for g in user_games if g.result.lower() == "won")
-        losses = sum(1 for g in user_games if g.result.lower() == "lost")
-        draws = sum(1 for g in user_games if g.result.lower() in ["draw", "stalemate"])
-        total_games = len(user_games)
-    else:
-        wins = current_user.wins or 0
-        losses = current_user.losses or 0
-        draws = current_user.draws or 0
-        total_games = wins + losses + draws
+    wins = sum(1 for g in user_games if g.result.lower() == "won")
+    losses = sum(1 for g in user_games if g.result.lower() == "lost")
+    draws = sum(1 for g in user_games if g.result.lower() in ["draw", "stalemate"])
+    total_games = len(user_games)
 
     win_rate = round((wins / total_games * 100)) if total_games > 0 else 0
     loss_rate = round((losses / total_games * 100)) if total_games > 0 else 0
     draw_rate = round((draws / total_games * 100)) if total_games > 0 else 0
+
+    if (current_user.wins != wins or current_user.losses != losses or current_user.draws != draws):
+        current_user.wins = wins
+        current_user.losses = losses
+        current_user.draws = draws
+        db.commit()
+        db.refresh(current_user)
 
     return {
         "totalGames": total_games,
@@ -121,12 +131,12 @@ def get_player_by_game_id(game_id: str, db: Session = Depends(get_db)):
 
 @router.get("/games", response_model=List[GameResponse])
 def get_game_history(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """[GET] Retrieves history of games played by the user."""
+    """[GET] Retrieves history of games played by the user (latest 10 games)."""
     games = (
         db.query(CareerGame)
         .filter(CareerGame.user_id == current_user.id)
         .order_by(desc(CareerGame.played_at))
-        .limit(50)
+        .limit(10)
         .all()
     )
     return [g.to_dict() for g in games]
@@ -148,15 +158,13 @@ def record_game(
         rating_change=payload.ratingChange or "+0"
     )
     db.add(game)
+    db.flush()
 
-    # Update User summary stats
-    result_lower = payload.result.lower()
-    if result_lower == "won":
-        current_user.wins = (current_user.wins or 0) + 1
-    elif result_lower == "lost":
-        current_user.losses = (current_user.losses or 0) + 1
-    else:
-        current_user.draws = (current_user.draws or 0) + 1
+    # Recalculate User summary stats directly from database records
+    user_games = db.query(CareerGame).filter(CareerGame.user_id == current_user.id).all()
+    current_user.wins = sum(1 for g in user_games if g.result.lower() == "won")
+    current_user.losses = sum(1 for g in user_games if g.result.lower() == "lost")
+    current_user.draws = sum(1 for g in user_games if g.result.lower() in ["draw", "stalemate"])
 
     # Parse rating change
     try:

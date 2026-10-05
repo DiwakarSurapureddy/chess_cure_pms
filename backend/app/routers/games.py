@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db, SessionLocal
 from app.models.game import GameCreateRequest, MoveRequest
+from app.models.friend import MatchChallenge
 from app.services.game_service import game_service
 from app.websockets.connection_manager import connection_manager
 
@@ -352,6 +353,54 @@ async def websocket_endpoint(
                         "type": "state",
                         "success": True,
                         "game": current_game.get_state(),
+                    }
+                )
+
+            elif action in ["cancel", "leave", "abort"]:
+                reason = data.get("reason", "board_changed")
+                current_game = game_service.get_game(game_id, db)
+                if current_game:
+                    if hasattr(current_game, "cancel_game"):
+                        current_game.cancel_game(reason)
+                    else:
+                        current_game.status = "cancelled"
+                    game_service.save_game(current_game, db)
+
+                try:
+                    challenge = db.query(MatchChallenge).filter(MatchChallenge.game_id == game_id).first()
+                    if challenge:
+                        challenge.status = "cancelled"
+                        db.commit()
+                except Exception:
+                    pass
+
+                await connection_manager.send_to_game(
+                    game_id,
+                    {
+                        "type": "cancelled",
+                        "reason": reason,
+                        "message": "The online match was cancelled because a player changed the board or left the arena.",
+                    }
+                )
+
+            elif action == "resign":
+                resigning_player = data.get("player", "unknown")
+                current_game = game_service.get_game(game_id, db)
+                winner_name = None
+                if current_game:
+                    current_game.status = "completed"
+                    current_game.result = "resignation"
+                    winner_name = current_game.player2 if resigning_player == "w" else current_game.player1
+                    current_game.winner = winner_name
+                    game_service.save_game(current_game, db)
+
+                await connection_manager.send_to_game(
+                    game_id,
+                    {
+                        "type": "resignation",
+                        "resigning_player": resigning_player,
+                        "winner": winner_name,
+                        "message": f"Player ({'White' if resigning_player == 'w' else 'Black'}) resigned the match.",
                     }
                 )
 

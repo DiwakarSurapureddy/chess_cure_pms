@@ -153,6 +153,16 @@ export function AuthProvider({ children }) {
     return await api.getChallengeStatus(curToken, gameId);
   };
 
+  const cancelActiveOnlineMatch = async (reason = 'board_changed') => {
+    if (activeOnlineMatch?.gameId) {
+      const curToken = token || localStorage.getItem(TOKEN_KEY);
+      if (curToken && curToken !== 'guest_local_token') {
+        await api.cancelMatchChallenge(curToken, { gameId: activeOnlineMatch.gameId, reason }).catch(() => {});
+      }
+    }
+    setActiveOnlineMatch(null);
+  };
+
   // Initialize Facebook SDK with App ID 1608757584075667
   useEffect(() => {
     if (!window.FB) {
@@ -184,28 +194,36 @@ export function AuthProvider({ children }) {
       try {
         const res = await api.getMe(storedToken);
         if (res?.user) {
-          setUser(res.user);
           setIsAuthenticated(true);
-          localStorage.setItem(USER_KEY, JSON.stringify(res.user));
 
-          // Fetch real games from DB
+          // Fetch real games & profile stats from DB simultaneously
           try {
-            const dbGames = await api.getGameHistory(storedToken);
+            const [dbGames, dbStats, dbPrefs] = await Promise.all([
+              api.getGameHistory(storedToken).catch(() => []),
+              api.getProfileStats(storedToken).catch(() => null),
+              api.getPreferences(storedToken).catch(() => null),
+            ]);
+
             setCareerGames(Array.isArray(dbGames) ? dbGames : []);
-          } catch (e) {
-            console.warn('Game history load warning:', e.message);
-            setCareerGames([]);
-          }
 
-          // Fetch preferences
-          try {
-            const dbPrefs = await api.getPreferences(storedToken);
+            const updatedUser = {
+              ...res.user,
+              wins: dbStats?.wins ?? res.user.wins ?? 0,
+              losses: dbStats?.losses ?? res.user.losses ?? 0,
+              draws: dbStats?.draws ?? res.user.draws ?? 0,
+              rating: dbStats?.rating ?? res.user.rating ?? 1200,
+            };
+            setUser(updatedUser);
+            localStorage.setItem(USER_KEY, JSON.stringify(updatedUser));
+
             if (dbPrefs) {
               setPreferences(dbPrefs);
               localStorage.setItem(PREFERENCES_KEY, JSON.stringify(dbPrefs));
             }
           } catch (e) {
-            console.warn('Preferences load warning:', e.message);
+            console.warn('Real-time data restore warning:', e.message);
+            setUser(res.user);
+            setCareerGames([]);
           }
         }
       } catch (err) {
@@ -236,8 +254,10 @@ export function AuthProvider({ children }) {
   }, [user, token]);
 
   useEffect(() => {
-    localStorage.setItem(CAREER_KEY, JSON.stringify(careerGames));
-  }, [careerGames]);
+    if (user?.id) {
+      localStorage.setItem(`${CAREER_KEY}_${user.id}`, JSON.stringify(careerGames));
+    }
+  }, [careerGames, user?.id]);
 
   useEffect(() => {
     localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
@@ -257,23 +277,35 @@ export function AuthProvider({ children }) {
 
       if (res?.token && res?.user) {
         setToken(res.token);
-        setUser(res.user);
         setIsAuthenticated(true);
         localStorage.setItem(TOKEN_KEY, res.token);
 
-        // Fetch user's DB games & preferences
+        // Fetch real-time DB games, stats & preferences for this account
         try {
-          const games = await api.getGameHistory(res.token);
-          setCareerGames(Array.isArray(games) ? games : []);
-          const prefs = await api.getPreferences(res.token);
-          if (prefs) {
-            setPreferences(prefs);
-          }
-        } catch (ignored) {
-          setCareerGames([]);
-        }
+          const [games, stats, prefs] = await Promise.all([
+            api.getGameHistory(res.token).catch(() => []),
+            api.getProfileStats(res.token).catch(() => null),
+            api.getPreferences(res.token).catch(() => null),
+          ]);
 
-        return { success: true, user: res.user };
+          setCareerGames(Array.isArray(games) ? games : []);
+          if (prefs) setPreferences(prefs);
+
+          const syncedUser = {
+            ...res.user,
+            wins: stats?.wins ?? res.user.wins ?? 0,
+            losses: stats?.losses ?? res.user.losses ?? 0,
+            draws: stats?.draws ?? res.user.draws ?? 0,
+            rating: stats?.rating ?? res.user.rating ?? 1200,
+          };
+          setUser(syncedUser);
+          localStorage.setItem(USER_KEY, JSON.stringify(syncedUser));
+          return { success: true, user: syncedUser };
+        } catch (ignored) {
+          setUser(res.user);
+          setCareerGames([]);
+          return { success: true, user: res.user };
+        }
       }
       throw new Error(res?.error || 'Invalid credentials.');
     } catch (err) {
@@ -465,8 +497,11 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem('cc_auth_user');
+    localStorage.removeItem(CAREER_KEY);
     setUser(null);
     setToken(null);
+    setCareerGames([]);
+    setActiveOnlineMatch(null);
     setIsAuthenticated(false);
     setAuthError(null);
   };
@@ -540,7 +575,7 @@ export function AuthProvider({ children }) {
       return newGame;
     }
 
-    // 2. Authenticated user: save in backend DB
+    // 2. Authenticated user: save in backend DB & update real-time counts
     const currentToken = token || localStorage.getItem(TOKEN_KEY);
     if (currentToken) {
       try {
@@ -552,29 +587,29 @@ export function AuthProvider({ children }) {
           moves: gameData.moves,
           ratingChange: gameData.ratingChange,
         });
+
         if (res) {
-          setCareerGames((prev) => [res, ...prev]);
+          setCareerGames((prev) => [res, ...prev.filter((g) => g.id !== res.id)]);
+        }
+
+        // Fetch refreshed real-time DB stats to maintain absolute synchronization
+        const stats = await api.getProfileStats(currentToken).catch(() => null);
+        if (stats) {
+          setUser((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              wins: stats.wins,
+              losses: stats.losses,
+              draws: stats.draws,
+              rating: stats.rating,
+            };
+          });
         }
       } catch (e) {
         console.warn('Backend record game warning:', e.message);
         setCareerGames((prev) => [gameData, ...prev]);
       }
-    }
-
-    if (user) {
-      setUser((prev) => {
-        if (!prev) return prev;
-        const isWin = gameData.result === 'Won';
-        const isLoss = gameData.result === 'Lost';
-        const ratingDiff = parseInt(gameData.ratingChange) || 0;
-        return {
-          ...prev,
-          rating: Math.max(800, (prev.rating || 1200) + ratingDiff),
-          wins: isWin ? (prev.wins || 0) + 1 : prev.wins || 0,
-          losses: isLoss ? (prev.losses || 0) + 1 : prev.losses || 0,
-          draws: !isWin && !isLoss ? (prev.draws || 0) + 1 : prev.draws || 0,
-        };
-      });
     }
   };
 
@@ -606,6 +641,7 @@ export function AuthProvider({ children }) {
     fetchFriendsAndNotifications,
     activeOnlineMatch,
     setActiveOnlineMatch,
+    cancelActiveOnlineMatch,
     sendMatchChallenge,
     respondMatchChallenge,
     checkChallengeStatus,

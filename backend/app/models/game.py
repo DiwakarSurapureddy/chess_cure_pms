@@ -81,6 +81,11 @@ class Game:
         self.status = "active"
         self.updated_at = datetime.now(UTC)
 
+    def cancel_game(self, reason: str = "Match cancelled"):
+        self.status = "cancelled"
+        self.result = "cancelled"
+        self.updated_at = datetime.now(UTC)
+
     def make_move(
         self,
         from_square: str,

@@ -456,6 +456,23 @@ export const api = {
     const data = await res.json().catch(() => ({ success: false, status: 'unknown' }));
     return data;
   },
+
+  /**
+   * Cancel an active or pending match challenge
+   */
+  async cancelMatchChallenge(token, { gameId, challengeId, reason = 'board_changed' }) {
+    if (!token) return { success: false };
+    const res = await fetch(`${BASE_URL}/friends/challenge/cancel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ game_id: gameId, challenge_id: challengeId, reason }),
+    });
+    const data = await res.json().catch(() => ({ success: false }));
+    return data;
+  },
 };
 
 export default api;

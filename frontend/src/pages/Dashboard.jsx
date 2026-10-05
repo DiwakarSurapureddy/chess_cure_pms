@@ -4,19 +4,17 @@ import { useAuth } from '../context/AuthContext';
 import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X, Crown } from 'lucide-react';
 
 export default function Dashboard({ initialMode = 'computer', onNavigate }) {
-  const { user, recordGameResult, activeOnlineMatch, setActiveOnlineMatch } = useAuth();
+  const { user, recordGameResult, activeOnlineMatch, setActiveOnlineMatch, cancelActiveOnlineMatch } = useAuth();
   const [mode, setMode] = useState(activeOnlineMatch ? 'online' : initialMode);
   const [aiLevel, setAiLevel] = useState('intermediate');
   const [selectedSide, setSelectedSide] = useState(activeOnlineMatch?.playerColor || 'w'); // 'w' | 'b'
   const [friendName, setFriendName] = useState(activeOnlineMatch?.opponentName || 'Friend');
   const [secretUnlocked, setSecretUnlocked] = useState(false);
   const [showSecretModal, setShowSecretModal] = useState(false);
+  const [cancelPrompt, setCancelPrompt] = useState(null); // { targetMode, title, message }
 
   useEffect(() => {
-    if (initialMode && initialMode !== 'online') {
-      setActiveOnlineMatch(null);
-      setMode(initialMode);
-    } else if (activeOnlineMatch) {
+    if (activeOnlineMatch) {
       setMode('online');
       setSelectedSide(activeOnlineMatch.playerColor || 'w');
       setFriendName(activeOnlineMatch.opponentName || 'Online Opponent');
@@ -25,20 +23,52 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
     }
   }, [initialMode, activeOnlineMatch]);
 
-  const handleSwitchToComputer = () => {
-    setActiveOnlineMatch(null);
-    setMode('computer');
-    setSelectedSide('w');
+  const handleRequestModeChange = (targetMode) => {
+    // If currently playing online with an active match, warn that board change cancels the match
+    if (mode === 'online' && activeOnlineMatch && targetMode !== 'online') {
+      const modeLabel = targetMode === 'computer' ? 'vs Computer' : 'Play vs Friends';
+      setCancelPrompt({
+        targetMode,
+        title: 'Cancel Active Online Match?',
+        message: `Changing the board to "${modeLabel}" will immediately cancel your online match vs ${activeOnlineMatch.opponentName}. Are you sure you want to cancel the match and switch boards?`
+      });
+      return;
+    }
+    setMode(targetMode);
+    if (targetMode === 'computer') setSelectedSide('w');
   };
 
-  const handleSwitchToTwoPlayer = () => {
-    setActiveOnlineMatch(null);
-    setMode('two-player');
+  const handleConfirmCancelMatch = async () => {
+    const target = cancelPrompt?.targetMode || 'computer';
+    setCancelPrompt(null);
+    if (cancelActiveOnlineMatch) {
+      await cancelActiveOnlineMatch('board_changed');
+    } else {
+      setActiveOnlineMatch(null);
+    }
+    setMode(target);
+    if (target === 'computer') setSelectedSide('w');
   };
 
-  const handleSwitchToOnline = () => {
-    setMode('online');
+  const handleExitLiveMatch = async () => {
+    setCancelPrompt({
+      targetMode: 'computer',
+      title: 'Exit Live Online Match?',
+      message: `Leaving the live match against ${activeOnlineMatch?.opponentName || 'opponent'} will cancel the game. Are you sure you want to exit?`
+    });
   };
+
+  const handleOnlineMatchCancelled = () => {
+    if (cancelActiveOnlineMatch) {
+      cancelActiveOnlineMatch('remote_cancelled');
+    } else {
+      setActiveOnlineMatch(null);
+    }
+  };
+
+  const handleSwitchToComputer = () => handleRequestModeChange('computer');
+  const handleSwitchToTwoPlayer = () => handleRequestModeChange('two-player');
+  const handleSwitchToOnline = () => handleRequestModeChange('online');
 
   const handleSecretMove = (move) => {
     setSecretUnlocked(true);
@@ -208,10 +238,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
 
         {mode === 'online' && activeOnlineMatch && (
           <button
-            onClick={() => {
-              setActiveOnlineMatch(null);
-              setMode('computer');
-            }}
+            onClick={handleExitLiveMatch}
             className="py-1.5 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-bold transition-colors cursor-pointer"
           >
             Exit Live Match
@@ -242,7 +269,44 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
         onSecretMoveDetected={handleSecretMove}
         onGameOver={handleGameOver}
         onNavigate={onNavigate}
+        onOnlineMatchCancelled={handleOnlineMatchCancelled}
       />
+
+      {/* Cancel Match Confirmation Modal on Board Change */}
+      {cancelPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="relative w-full max-w-md rounded-3xl bg-[#0b1322] border-2 border-amber-500/60 p-6 shadow-[0_0_50px_rgba(245,158,11,0.3)] space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
+              <Swords className="w-6 h-6 animate-pulse" />
+            </div>
+
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-black text-white">{cancelPrompt.title}</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {cancelPrompt.message}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setCancelPrompt(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors cursor-pointer"
+              >
+                Stay in Match
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmCancelMatch}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 text-white font-extrabold text-xs transition-colors shadow-md shadow-rose-500/30 cursor-pointer"
+              >
+                Cancel & Switch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Secret Chat Modal */}
       {showSecretModal && (

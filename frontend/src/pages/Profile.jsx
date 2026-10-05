@@ -243,23 +243,17 @@ export default function Profile({ onNavigate }) {
   const initial = username ? username[0].toUpperCase() : 'G';
   const playerId = dbStats?.playerId || user.playerId || '100001';
 
-  // Synchronize stats directly with actual career games
-  const hasCareerGames = Array.isArray(careerGames) && careerGames.length > 0;
-  const winsCount = hasCareerGames
-    ? careerGames.filter((g) => g.result?.toLowerCase() === 'won').length
-    : (dbStats?.wins ?? user.wins ?? 0);
-  const lossesCount = hasCareerGames
-    ? careerGames.filter((g) => g.result?.toLowerCase() === 'lost').length
-    : (dbStats?.losses ?? user.losses ?? 0);
-  const drawsCount = hasCareerGames
-    ? careerGames.filter((g) => ['draw', 'stalemate'].includes(g.result?.toLowerCase())).length
-    : (dbStats?.draws ?? user.draws ?? 0);
-  const totalGames = hasCareerGames
-    ? careerGames.length
-    : (dbStats?.totalGames ?? (winsCount + lossesCount + drawsCount));
+  // Synchronize stats strictly with real-time aggregated DB stats (all matches counted)
+  const totalGames = dbStats?.totalGames ?? (Array.isArray(careerGames) ? careerGames.length : (user?.wins || 0) + (user?.losses || 0) + (user?.draws || 0));
+  const winsCount = dbStats?.wins ?? (Array.isArray(careerGames) && careerGames.length > 0 ? careerGames.filter((g) => g.result?.toLowerCase() === 'won').length : (user?.wins ?? 0));
+  const lossesCount = dbStats?.losses ?? (Array.isArray(careerGames) && careerGames.length > 0 ? careerGames.filter((g) => g.result?.toLowerCase() === 'lost').length : (user?.losses ?? 0));
+  const drawsCount = dbStats?.draws ?? (Array.isArray(careerGames) && careerGames.length > 0 ? careerGames.filter((g) => ['draw', 'stalemate'].includes(g.result?.toLowerCase())).length : (user?.draws ?? 0));
   const winRate = totalGames > 0 ? Math.round((winsCount / totalGames) * 100) : 0;
   const lossRate = totalGames > 0 ? Math.round((lossesCount / totalGames) * 100) : 0;
   const drawRate = totalGames > 0 ? Math.round((drawsCount / totalGames) * 100) : 0;
+
+  // Display only the last and latest 10 games played
+  const displayedGames = Array.isArray(careerGames) ? careerGames.slice(0, 10) : [];
 
   return (
     <div className="relative min-h-[calc(100vh-80px)] py-10 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto w-full animate-fade-in space-y-8">
@@ -619,16 +613,18 @@ export default function Profile({ onNavigate }) {
             <Trophy className="w-5 h-5 text-amber-400" />
             Career Game History
           </h2>
-          <span className="text-xs text-slate-400">{careerGames.length} matches recorded</span>
+          <span className="text-xs text-amber-400/90 font-mono">
+            Showing latest {displayedGames.length} matches (Total: {totalGames})
+          </span>
         </div>
 
-        {careerGames.length === 0 ? (
+        {displayedGames.length === 0 ? (
           <div className="p-8 rounded-2xl bg-[#0c1424] border border-slate-800 text-center text-slate-400 text-xs">
             No games played yet. Challenge the engine or players to build your career!
           </div>
         ) : (
           <div className="space-y-2.5">
-            {careerGames.map((game) => {
+            {displayedGames.map((game) => {
               const isWin = game.result === 'Won';
               const isLoss = game.result === 'Lost';
               const currentUserName = user?.username || user?.name || 'User';

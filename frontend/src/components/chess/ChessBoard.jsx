@@ -38,6 +38,7 @@ export default function ChessBoard({
   onSecretMoveDetected,
   onGameOver,
   onNavigate,
+  onOnlineMatchCancelled,
 }) {
   const { user, preferences } = useAuth();
   const showInstructions = preferences?.showInstructions ?? true;
@@ -59,6 +60,7 @@ export default function ChessBoard({
   const [showSideModal, setShowSideModal] = useState(false);
   const [onlineConnected, setOnlineConnected] = useState(false);
   const [onlineOpponentStatus, setOnlineOpponentStatus] = useState('');
+  const [onlineCancelModalOpen, setOnlineCancelModalOpen] = useState(false);
 
   const socketRef = useRef(null);
 
@@ -83,7 +85,7 @@ export default function ChessBoard({
   const refreshBoard = () => {
     setBoard(chess.board());
     setTurn(chess.turn());
-    setHistory(chess.history());
+    setHistory([...chess.history()]);
 
     if (chess.isCheckmate()) {
       // The side whose turn it is has no legal moves and is in check -> the OTHER side won!
@@ -112,8 +114,23 @@ export default function ChessBoard({
           winnerSubtitle = 'Checkmate! Computer won this game.';
           isUserWin = false;
         }
+      } else if (gameMode === 'online') {
+        const isUserWinOnline = winningColor === playerColor;
+        const currentUserName = user?.username || user?.name || 'You';
+        const oppName = player2Name || player1Name || 'Opponent';
+        winnerName = isUserWinOnline ? currentUserName : oppName;
+        winnerTitle = `${winnerName.toUpperCase()} WINS!`;
+        winnerSubtitle = isUserWinOnline
+          ? `Checkmate! You claimed glorious victory against ${oppName}.`
+          : `Checkmate! ${oppName} claimed victory.`;
+        isUserWin = isUserWinOnline;
+        if (isUserWin) {
+          try {
+            confetti({ particleCount: 140, spread: 85, origin: { y: 0.55 } });
+          } catch (e) {}
+        }
       } else {
-        // Two-Player / Play vs Friends / Online
+        // Two-Player / Play vs Friends (Pass & Play on same screen)
         const p1 = player1Name || user?.username || user?.name || 'Player 1 (White)';
         const p2 = player2Name || 'Player 2 (Black)';
         winnerName = isWhiteWinner ? p1 : p2;
@@ -206,38 +223,98 @@ export default function ChessBoard({
         const data = JSON.parse(event.data);
         if (data.type === 'connected') {
           setOnlineOpponentStatus('Player joined arena');
-          if (data.game?.moves && data.game.moves.length > 0) {
+          if (data.game?.moves && Array.isArray(data.game.moves) && data.game.moves.length > 0) {
             chess.reset();
             data.game.moves.forEach((m) => {
               try {
                 chess.move({ from: m.slice(0, 2), to: m.slice(2, 4), promotion: m[4] || 'q' });
               } catch (e) {}
             });
-            refreshBoard();
-          } else if (data.game?.fen && data.game.fen !== chess.fen()) {
-            chess.load(data.game.fen);
+            const last = data.game.moves[data.game.moves.length - 1];
+            if (last) {
+              setLastMove({ from: last.slice(0, 2), to: last.slice(2, 4) });
+            }
             refreshBoard();
           }
         } else if (data.type === 'move') {
-          if (data.game?.moves && data.game.moves.length > 0) {
-            const lastUci = data.game.moves[data.game.moves.length - 1];
-            const from = lastUci.slice(0, 2);
-            const to = lastUci.slice(2, 4);
-            const promotion = lastUci.length > 4 ? lastUci[4] : 'q';
-            try {
-              chess.move({ from, to, promotion });
-            } catch (err) {
-              if (data.game?.fen) chess.load(data.game.fen);
+          if (data.game?.moves && Array.isArray(data.game.moves)) {
+            const currentHist = chess.history();
+            // If local chess does not have all moves (e.g. opponent move came in), replay cleanly
+            if (currentHist.length !== data.game.moves.length) {
+              chess.reset();
+              data.game.moves.forEach((m) => {
+                try {
+                  chess.move({ from: m.slice(0, 2), to: m.slice(2, 4), promotion: m[4] || 'q' });
+                } catch (e) {}
+              });
+              const last = data.game.moves[data.game.moves.length - 1];
+              if (last) {
+                setLastMove({ from: last.slice(0, 2), to: last.slice(2, 4) });
+                if (soundEnabled) playChessSound('move');
+              }
+              refreshBoard();
+            } else {
+              // Local already made the move, just ensure history & state are synced without wiping
+              setHistory([...chess.history()]);
             }
-            setLastMove({ from, to });
-            if (soundEnabled) playChessSound('move');
-            refreshBoard();
-          } else if (data.game?.fen) {
-            chess.load(data.game.fen);
-            refreshBoard();
+          }
+        } else if (data.type === 'resignation') {
+          const isOpponentResign = data.resigning_player !== playerColor;
+          const currentUserName = user?.username || user?.name || 'You';
+          const oppName = player2Name || player1Name || 'Opponent';
+          const resWinner = isOpponentResign ? currentUserName : oppName;
+          const resTitle = `${resWinner.toUpperCase()} WINS!`;
+          const resSubtitle = isOpponentResign
+            ? `Opponent resigned the match. You claimed victory!`
+            : `You resigned the match.`;
+
+          if (isOpponentResign) {
+            try {
+              confetti({ particleCount: 140, spread: 85, origin: { y: 0.55 } });
+            } catch (e) {}
+          }
+
+          setGameOverModal({
+            isOpen: true,
+            winner: resWinner,
+            winnerName: resWinner,
+            title: resTitle,
+            subtitle: resSubtitle,
+            method: 'Resignation',
+            isDraw: false,
+            isUserWin: isOpponentResign,
+            moves: chess.history().length,
+          });
+
+          setGameStatus(`Resignation! ${resWinner} Wins`);
+
+          if (onGameOver) {
+            onGameOver({
+              result: isOpponentResign ? 'Won' : 'Lost',
+              winnerName: resWinner,
+              method: 'Resignation',
+              moves: chess.history().length,
+            });
           }
         } else if (data.type === 'disconnected') {
           setOnlineOpponentStatus('Opponent disconnected');
+        } else if (data.type === 'cancelled') {
+          setOnlineOpponentStatus('Match cancelled - board changed or player left');
+          setGameStatus('Match Cancelled');
+          setGameOverModal({
+            isOpen: true,
+            winner: null,
+            winnerName: 'Match Cancelled',
+            title: 'ONLINE MATCH CANCELLED',
+            subtitle: data.message || 'The online match was cancelled because a player changed the board or left the arena.',
+            method: 'Match Cancelled',
+            isDraw: false,
+            isUserWin: false,
+            moves: chess.history().length,
+          });
+          if (onOnlineMatchCancelled) {
+            onOnlineMatchCancelled();
+          }
         }
       } catch (err) {
         console.warn('WS Message error:', err);
@@ -254,6 +331,14 @@ export default function ChessBoard({
     };
 
     return () => {
+      if (socket.readyState === WebSocket.OPEN) {
+        try {
+          socket.send(JSON.stringify({
+            action: 'cancel',
+            reason: 'board_changed'
+          }));
+        } catch (e) {}
+      }
       socket.close();
       socketRef.current = null;
     };
@@ -274,6 +359,20 @@ export default function ChessBoard({
       winnerName = 'Computer';
       winnerSubtitle = `${currentUserName} resigned. Computer won this game.`;
       isUserWin = false;
+    } else if (gameMode === 'online') {
+      const oppName = player2Name || player1Name || 'Opponent';
+      winnerTitle = `${oppName.toUpperCase()} WINS!`;
+      winnerName = oppName;
+      winnerSubtitle = `You resigned the match. ${oppName} won.`;
+      isUserWin = false;
+
+      // Notify server and opponent via WebSocket
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+        socketRef.current.send(JSON.stringify({
+          action: 'resign',
+          player: playerColor,
+        }));
+      }
     } else {
       const opposingColor = chess.turn() === 'w' ? 'b' : 'w';
       const p1 = player1Name || user?.username || user?.name || 'Player 1 (White)';
@@ -313,7 +412,8 @@ export default function ChessBoard({
 
   // AI Move logic - integrates with Backend Chess Engine with smooth fallback
   const makeAiMove = async (currentChess = chess) => {
-    if (currentChess.isGameOver()) return;
+    // Strictly disable AI move if not in vs Computer mode!
+    if (gameMode !== 'computer' || currentChess.isGameOver()) return;
     setIsAiThinking(true);
 
     let backendReplied = false;
@@ -393,9 +493,34 @@ export default function ChessBoard({
     }
   };
 
+  const handleRestartClick = () => {
+    if (gameMode === 'online') {
+      setOnlineCancelModalOpen(true);
+      return;
+    }
+    resetGame(playerColor);
+  };
+
+  const handleConfirmOnlineRestartCancel = () => {
+    setOnlineCancelModalOpen(false);
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      try {
+        socketRef.current.send(JSON.stringify({
+          action: 'cancel',
+          reason: 'board_reset'
+        }));
+      } catch (e) {}
+    }
+    if (onOnlineMatchCancelled) {
+      onOnlineMatchCancelled();
+    }
+    resetGame(playerColor);
+  };
+
   // Switch Side handler
   const handleSelectSide = (side) => {
     setShowSideModal(false);
+    if (gameMode === 'online') return; // Color is fixed for online match
     if (side !== playerColor || chess.history().length > 0) {
       resetGame(side);
     }
@@ -419,6 +544,7 @@ export default function ChessBoard({
 
   // Undo Move
   const handleUndo = () => {
+    if (gameMode === 'online') return; // Cannot undo during live online match
     if (chess.isGameOver() || isAiThinking) return;
     if (gameMode === 'computer') {
       // Undo both AI move and player move
@@ -435,6 +561,7 @@ export default function ChessBoard({
 
   // Hint generator
   const handleGetHint = () => {
+    if (gameMode === 'online') return; // Hints disabled in competitive online matches
     if (chess.isGameOver() || isAiThinking) return;
     const moves = chess.moves({ verbose: true });
     if (moves.length === 0) return;
@@ -770,9 +897,9 @@ export default function ChessBoard({
           
           {/* Button 1: RESTART */}
           <button
-            onClick={() => resetGame(playerColor)}
-            className="flex flex-col items-center gap-1 group focus:outline-none"
-            title="Restart Match"
+            onClick={handleRestartClick}
+            className="flex flex-col items-center gap-1 group focus:outline-none cursor-pointer"
+            title={gameMode === 'online' ? 'Cancel & Restart Online Match' : 'Restart Match'}
           >
             <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-b from-[#b45309] via-[#78350f] to-[#451a03] p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.6)] group-hover:scale-105 transition-transform">
               <div className="w-full h-full rounded-full bg-gradient-to-b from-[#d97706] to-[#92400e] border border-amber-300/60 flex items-center justify-center shadow-inner">
@@ -786,9 +913,12 @@ export default function ChessBoard({
 
           {/* Button 2: PIECES / CHOOSE COLOR (White or Black) */}
           <button
-            onClick={() => setShowSideModal(true)}
-            className="flex flex-col items-center gap-1 group focus:outline-none"
-            title="Select Side (White / Black)"
+            onClick={() => gameMode !== 'online' && setShowSideModal(true)}
+            disabled={gameMode === 'online'}
+            className={`flex flex-col items-center gap-1 group focus:outline-none ${
+              gameMode === 'online' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+            }`}
+            title={gameMode === 'online' ? 'Assigned side in online match' : 'Select Side (White / Black)'}
           >
             <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-b from-[#64748b] via-[#334155] to-[#1e293b] p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.6)] group-hover:scale-105 transition-transform">
               <div className="w-full h-full rounded-full bg-gradient-to-b from-[#475569] to-[#1e293b] border border-slate-500/60 flex items-center justify-center shadow-inner relative">
@@ -806,11 +936,11 @@ export default function ChessBoard({
           {/* Button 3: UNDO */}
           <button
             onClick={handleUndo}
-            disabled={history.length === 0 || isAiThinking}
+            disabled={history.length === 0 || isAiThinking || gameMode === 'online'}
             className={`flex flex-col items-center gap-1 group focus:outline-none ${
-              history.length === 0 || isAiThinking ? 'opacity-50 cursor-not-allowed' : ''
+              history.length === 0 || isAiThinking || gameMode === 'online' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
             }`}
-            title="Undo Move"
+            title={gameMode === 'online' ? 'Undo not permitted in online match' : 'Undo Move'}
           >
             <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-b from-[#64748b] via-[#334155] to-[#1e293b] p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.6)] group-hover:scale-105 transition-transform">
               <div className="w-full h-full rounded-full bg-gradient-to-b from-[#475569] to-[#1e293b] border border-slate-500/60 flex items-center justify-center shadow-inner">
@@ -825,9 +955,11 @@ export default function ChessBoard({
           {/* Button 4: HINT */}
           <button
             onClick={handleGetHint}
-            disabled={isAiThinking || chess.isGameOver()}
-            className="flex flex-col items-center gap-1 group focus:outline-none relative"
-            title="Tactical Hint"
+            disabled={isAiThinking || chess.isGameOver() || gameMode === 'online'}
+            className={`flex flex-col items-center gap-1 group focus:outline-none relative ${
+              gameMode === 'online' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+            }`}
+            title={gameMode === 'online' ? 'Hints disabled in online match' : 'Tactical Hint'}
           >
             <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-b from-[#b45309] via-[#78350f] to-[#451a03] p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.6)] group-hover:scale-105 transition-transform relative">
               <div className="w-full h-full rounded-full bg-gradient-to-b from-[#d97706] to-[#92400e] border border-amber-300/60 flex items-center justify-center shadow-inner">
@@ -1153,6 +1285,42 @@ export default function ChessBoard({
                   Exit to Arena
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Online Match Restart / Cancellation Confirmation Modal */}
+      {onlineCancelModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="relative w-full max-w-md rounded-3xl bg-[#0b1322] border-2 border-amber-500/60 p-6 shadow-[0_0_50px_rgba(245,158,11,0.3)] space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto">
+              <RotateCcw className="w-6 h-6 animate-spin text-amber-400" />
+            </div>
+
+            <div className="text-center space-y-2">
+              <h3 className="text-lg font-black text-white">Restart Online Board?</h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Restarting the board will immediately cancel your active online match with your opponent. Both players will leave the match arena. Are you sure you want to cancel the match?
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setOnlineCancelModalOpen(false)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors cursor-pointer"
+              >
+                Keep Playing
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmOnlineRestartCancel}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 text-white font-extrabold text-xs transition-colors shadow-md shadow-rose-500/30 cursor-pointer"
+              >
+                Cancel & Restart
+              </button>
             </div>
           </div>
         </div>

@@ -29,6 +29,11 @@ class MatchChallengeResponse(BaseModel):
     challenge_id: str
     action: str  # "accept" or "decline"
 
+class MatchChallengeCancel(BaseModel):
+    game_id: Optional[str] = None
+    challenge_id: Optional[str] = None
+    reason: Optional[str] = "board_changed"
+
 @router.post("/request")
 def send_friend_request(
     payload: FriendRequestCreate,
@@ -348,4 +353,41 @@ def get_challenge_status(
         "gameId": challenge.game_id,
         "player1": challenge.sender.username if challenge.sender else "Player 1",
         "player2": challenge.receiver.username if challenge.receiver else "Player 2",
+    }
+
+@router.post("/challenge/cancel")
+def cancel_match_challenge(
+    payload: MatchChallengeCancel,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Cancels an active or pending match challenge when board changes or player leaves."""
+    query = db.query(MatchChallenge)
+    if payload.challenge_id:
+        query = query.filter(MatchChallenge.id == payload.challenge_id)
+    elif payload.game_id:
+        query = query.filter(MatchChallenge.game_id == payload.game_id)
+    else:
+        raise HTTPException(status_code=400, detail="game_id or challenge_id required")
+
+    challenge = query.first()
+    if challenge:
+        challenge.status = "cancelled"
+        game = game_service.get_game(challenge.game_id, db)
+        if game:
+            if hasattr(game, "cancel_game"):
+                game.cancel_game(payload.reason or "board_changed")
+            else:
+                game.status = "cancelled"
+            game_service.save_game(game, db)
+        db.commit()
+        return {
+            "success": True,
+            "message": "Match challenge cancelled successfully.",
+            "status": "cancelled",
+            "gameId": challenge.game_id
+        }
+    return {
+        "success": False,
+        "message": "Match challenge not found."
     }

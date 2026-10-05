@@ -130,9 +130,6 @@ def seed_default_users(db: Session):
     else:
         existing_diwa.hashed_password = get_password_hash("diwa123")
         existing_diwa.player_id = "100003"
-        existing_diwa.wins = 3
-        existing_diwa.losses = 1
-        existing_diwa.draws = 1
 
     # 4. Sumathi Gajjala account (starts with 0 as new player)
     sumathi_email = "gajjalasumathi502@gmail.com"
@@ -175,7 +172,7 @@ def seed_default_users(db: Session):
         db.add_all(demo_games)
         db.commit()
 
-    # Seed played games for diwa
+    # Seed played games for diwa if empty
     target_diwa = db.query(User).filter(User.email == diwa_email).first()
     if target_diwa and db.query(CareerGame).filter(CareerGame.user_id == target_diwa.id).count() == 0:
         diwa_games = [
@@ -187,6 +184,14 @@ def seed_default_users(db: Session):
         ]
         db.add_all(diwa_games)
         db.commit()
+
+    # Ensure all users have their summary stats 100% synchronized with actual CareerGame count
+    for user_item in db.query(User).all():
+        u_games = db.query(CareerGame).filter(CareerGame.user_id == user_item.id).all()
+        user_item.wins = sum(1 for g in u_games if g.result.lower() == "won")
+        user_item.losses = sum(1 for g in u_games if g.result.lower() == "lost")
+        user_item.draws = sum(1 for g in u_games if g.result.lower() in ["draw", "stalemate"])
+    db.commit()
 
 def register_user(
     db: Session,
