@@ -57,7 +57,6 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
 
   const handleNavClick = (tab) => {
     if (tab === 'chat') {
-      openChatModal();
       if (onTabChange) onTabChange('chat');
       setMobileMenuOpen(false);
       setNotifOpen(false);

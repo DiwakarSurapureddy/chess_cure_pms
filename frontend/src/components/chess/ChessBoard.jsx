@@ -23,10 +23,42 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../context/AuthContext';
+import { useSecretChat } from '../../context/SecretChatContext';
 import { playChessSound } from '../../utils/sound';
 import api from '../../services/api';
 
 export { playChessSound };
+
+const computeCapturedPieces = (chessInst) => {
+  const whiteCaps = [];
+  const blackCaps = [];
+  try {
+    const hist = chessInst.history({ verbose: true });
+    hist.forEach((m) => {
+      if (m.captured) {
+        if (m.color === 'w') whiteCaps.push(m.captured);
+        else blackCaps.push(m.captured);
+      }
+    });
+  } catch (e) {}
+  return { white: whiteCaps, black: blackCaps };
+};
+
+const getKingInCheckSquare = (chessInst) => {
+  if (!chessInst.inCheck()) return null;
+  const curTurn = chessInst.turn();
+  const fileChars = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  for (let r = 1; r <= 8; r++) {
+    for (const f of fileChars) {
+      const sq = `${f}${r}`;
+      const p = chessInst.get(sq);
+      if (p && p.type === 'k' && p.color === curTurn) {
+        return sq;
+      }
+    }
+  }
+  return null;
+};
 
 export default function ChessBoard({
   gameMode = 'computer', // 'computer' | 'two-player' | 'online'
@@ -40,7 +72,8 @@ export default function ChessBoard({
   onNavigate,
   onOnlineMatchCancelled,
 }) {
-  const { user, preferences } = useAuth();
+  const { user, preferences, token } = useAuth();
+  const { unlockSecretChat } = useSecretChat();
   const showInstructions = preferences?.showInstructions ?? true;
 
   const [chess] = useState(() => new Chess());
@@ -61,6 +94,8 @@ export default function ChessBoard({
   const [onlineConnected, setOnlineConnected] = useState(false);
   const [onlineOpponentStatus, setOnlineOpponentStatus] = useState('');
   const [onlineCancelModalOpen, setOnlineCancelModalOpen] = useState(false);
+  const [capturedPieces, setCapturedPieces] = useState({ white: [], black: [] });
+  const [kingInCheck, setKingInCheck] = useState(null);
 
   const socketRef = useRef(null);
 
@@ -86,6 +121,9 @@ export default function ChessBoard({
     setBoard(chess.board());
     setTurn(chess.turn());
     setHistory([...chess.history()]);
+    setCapturedPieces(computeCapturedPieces(chess));
+    const inCheckSquare = getKingInCheckSquare(chess);
+    setKingInCheck(inCheckSquare);
 
     if (chess.isCheckmate()) {
       // The side whose turn it is has no legal moves and is in check -> the OTHER side won!
@@ -164,29 +202,50 @@ export default function ChessBoard({
           moves: chess.history().length,
         });
       }
-    } else if (chess.isDraw()) {
+    } else if (chess.isStalemate()) {
       setGameOverModal({
         isOpen: true,
         winner: 'draw',
-        winnerName: 'Stalemate / Draw',
-        title: 'GAME DRAWN!',
-        subtitle: 'Neither side could deliver checkmate. Match drawn.',
+        winnerName: 'Stalemate',
+        title: 'STALEMATE DETECTED!',
+        subtitle: `${chess.turn() === 'w' ? 'White' : 'Black'} has no legal moves and King is not in check. Game drawn by Stalemate.`,
         method: 'Stalemate',
         isDraw: true,
         isUserWin: false,
         moves: chess.history().length,
       });
-      setGameStatus('Draw (Stalemate / 50-move rule)');
+      setGameStatus('Draw by Stalemate');
       if (onGameOver) {
         onGameOver({
           result: 'Draw',
-          winnerName: 'Draw',
+          winnerName: 'Stalemate',
           method: 'Stalemate',
           moves: chess.history().length,
         });
       }
+    } else if (chess.isDraw()) {
+      setGameOverModal({
+        isOpen: true,
+        winner: 'draw',
+        winnerName: 'Draw',
+        title: 'GAME DRAWN!',
+        subtitle: 'Neither side could deliver checkmate (Repetition or 50-move rule).',
+        method: 'Draw',
+        isDraw: true,
+        isUserWin: false,
+        moves: chess.history().length,
+      });
+      setGameStatus('Draw (Repetition / 50-move rule)');
+      if (onGameOver) {
+        onGameOver({
+          result: 'Draw',
+          winnerName: 'Draw',
+          method: 'Draw',
+          moves: chess.history().length,
+        });
+      }
     } else if (chess.inCheck()) {
-      setGameStatus('Check!');
+      setGameStatus('Check! King in Check');
     } else {
       setGameStatus('In Progress');
     }
@@ -223,6 +282,12 @@ export default function ChessBoard({
         const data = JSON.parse(event.data);
         if (data.type === 'connected') {
           setOnlineOpponentStatus('Player joined arena');
+          if (data.game?.captured_pieces) {
+            setCapturedPieces(data.game.captured_pieces);
+          }
+          if (data.game?.chat_unlocked) {
+            unlockSecretChat(data.game.chat_unlock_reason || 'Piece captured within first 5 moves');
+          }
           if (data.game?.moves && Array.isArray(data.game.moves) && data.game.moves.length > 0) {
             chess.reset();
             data.game.moves.forEach((m) => {
@@ -237,6 +302,12 @@ export default function ChessBoard({
             refreshBoard();
           }
         } else if (data.type === 'move') {
+          if (data.game?.captured_pieces) {
+            setCapturedPieces(data.game.captured_pieces);
+          }
+          if (data.game?.chat_unlocked) {
+            unlockSecretChat(data.game.chat_unlock_reason || 'Piece captured within first 5 moves');
+          }
           if (data.game?.moves && Array.isArray(data.game.moves)) {
             const currentHist = chess.history();
             // If local chess does not have all moves (e.g. opponent move came in), replay cleanly
@@ -626,6 +697,17 @@ export default function ChessBoard({
             }
           }
 
+          // Requirement 8: Automatically unlock chat when either player legally captures at least ONE opponent piece within first 5 moves
+          if (move.captured) {
+            const currentMoveNum = Math.floor((chess.history().length - 1) / 2) + 1;
+            if (currentMoveNum <= 5) {
+              const capturer = move.color === playerColor ? (user?.username || 'You') : 'Opponent';
+              const unlockText = `${capturer} legally captured opponent piece (${move.captured.toUpperCase()}) on move ${currentMoveNum}!`;
+              unlockSecretChat(unlockText);
+              if (onSecretMoveDetected) onSecretMoveDetected(move);
+            }
+          }
+
           setSelectedSquare(null);
           setLegalMoves([]);
           refreshBoard();
@@ -702,8 +784,20 @@ export default function ChessBoard({
             </div>
           </div>
 
-          {/* Right: Opponent Side Badge & AI Thinking state */}
-          <div className="flex items-center gap-2.5">
+          {/* Right: Opponent Side Badge, Captured Pieces & AI Thinking state */}
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* Opponent's Captured Pieces (Pieces taken from player) */}
+            {capturedPieces[playerColor === 'w' ? 'black' : 'white']?.length > 0 && (
+              <div className="hidden sm:flex items-center gap-0.5 px-2 py-0.5 rounded-lg bg-slate-900/80 border border-slate-700/60" title="Pieces captured by opponent">
+                <span className="text-[9px] text-slate-400 font-bold mr-0.5">Captures:</span>
+                {capturedPieces[playerColor === 'w' ? 'black' : 'white'].map((p, idx) => (
+                  <span key={idx} className="w-4 h-4 flex items-center justify-center">
+                    <ChessPiece type={p} color={playerColor} className="w-3.5 h-3.5" />
+                  </span>
+                ))}
+              </div>
+            )}
+
             {isAiThinking ? (
               <span className="text-xs text-amber-400 font-semibold flex items-center gap-1.5 animate-pulse bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
@@ -785,13 +879,16 @@ export default function ChessBoard({
                   const isLegalDestination = showInstructions && legalMoves.includes(square);
                   const isLastMove = lastMove && (lastMove.from === square || lastMove.to === square);
                   const isHint = hintSquare && (hintSquare.from === square || hintSquare.to === square);
+                  const isKingInDanger = (kingInCheck === square);
 
                   return (
                     <div
                       key={square}
                       onClick={() => handleSquareClick(square)}
                       className={`w-11 h-11 sm:w-14 sm:h-14 md:w-16 md:h-16 flex items-center justify-center relative cursor-pointer select-none transition-all duration-150 ${
-                        isSelected
+                        isKingInDanger
+                          ? 'bg-rose-600/80 ring-4 ring-rose-500 shadow-[0_0_30px_rgba(244,63,94,0.95)] animate-pulse z-20'
+                          : isSelected
                           ? 'bg-amber-400/60 ring-2 ring-inset ring-amber-300'
                           : isHint
                           ? 'bg-yellow-400/50 animate-pulse ring-2 ring-yellow-400'
@@ -819,6 +916,13 @@ export default function ChessBoard({
                           isLight ? 'text-[#8c7456]' : 'text-[#64748b]'
                         }`}>
                           {file}
+                        </span>
+                      )}
+
+                      {/* King in Check Warning Icon */}
+                      {isKingInDanger && (
+                        <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 border border-white flex items-center justify-center text-[9px] font-black text-white z-30 shadow-md animate-bounce">
+                          !
                         </span>
                       )}
 
@@ -873,6 +977,18 @@ export default function ChessBoard({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Player's Captured Pieces (Pieces taken from opponent) */}
+            {capturedPieces[playerColor === 'w' ? 'white' : 'black']?.length > 0 && (
+              <div className="hidden sm:flex items-center gap-0.5 px-2 py-0.5 rounded-lg bg-slate-900/80 border border-amber-500/30" title="Pieces captured by you">
+                <span className="text-[9px] text-amber-300 font-bold mr-0.5">Captures:</span>
+                {capturedPieces[playerColor === 'w' ? 'white' : 'black'].map((p, idx) => (
+                  <span key={idx} className="w-4 h-4 flex items-center justify-center">
+                    <ChessPiece type={p} color={playerColor === 'w' ? 'b' : 'w'} className="w-3.5 h-3.5" />
+                  </span>
+                ))}
+              </div>
+            )}
+
             <span
               className={`text-xs px-3 py-1 rounded-full font-bold flex items-center gap-1.5 ${
                 turn === playerColor

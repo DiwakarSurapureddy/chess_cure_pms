@@ -171,16 +171,16 @@ def respond_friend_request(
             "message": f"Friend request accepted! {req.sender.username} is now your friend.",
             "status": "accepted"
         }
-    elif action_clean == "decline":
+    elif action_clean in ["decline", "reject"]:
         req.status = "declined"
         db.commit()
         return {
             "success": True,
-            "message": "Friend request declined.",
+            "message": "Friend request rejected.",
             "status": "declined"
         }
     else:
-        raise HTTPException(status_code=400, detail="Invalid action. Use 'accept' or 'decline'.")
+        raise HTTPException(status_code=400, detail="Invalid action. Use 'accept' or 'reject'.")
 
 @router.get("/list")
 def get_friends_list(

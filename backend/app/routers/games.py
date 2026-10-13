@@ -1,3 +1,4 @@
+from datetime import datetime, UTC
 from fastapi import (
     APIRouter,
     Depends,
@@ -10,7 +11,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
 from app.models.game import GameCreateRequest, MoveRequest
 from app.models.friend import MatchChallenge
+from app.models.user import User
 from app.services.game_service import game_service
+from app.services.chat_service import chat_service
 from app.websockets.connection_manager import connection_manager
 
 
@@ -323,6 +326,20 @@ async def websocket_endpoint(
                     )
                     continue
 
+                if updated_game.chat_unlocked:
+                    try:
+                        u1 = db.query(User).filter(User.username == updated_game.player1).first()
+                        u2 = db.query(User).filter(User.username == updated_game.player2).first()
+                        if u1 and u2:
+                            chat_service.unlock_chat(
+                                db=db,
+                                user1_id=u1.id,
+                                user2_id=u2.id,
+                                reason=updated_game.chat_unlock_reason or "Captured piece within first 5 moves"
+                            )
+                    except Exception:
+                        pass
+
                 await connection_manager.send_to_game(
                     game_id,
                     {
@@ -355,6 +372,57 @@ async def websocket_endpoint(
                         "game": current_game.get_state(),
                     }
                 )
+
+            elif action in ["chat", "chat_message"]:
+                text = data.get("text", "").strip()
+                sender = data.get("sender", "Player")
+                current_game = game_service.get_game(game_id, db)
+                if not current_game:
+                    await websocket.send_json({"success": False, "message": "Game not found"})
+                    continue
+
+                state = current_game.get_state()
+                if not state.get("chat_unlocked"):
+                    await websocket.send_json({
+                        "type": "error",
+                        "success": False,
+                        "message": "Chat is locked. Legally capture an opponent piece within first 5 moves to unlock!"
+                    })
+                    continue
+
+                now_ts = datetime.now(UTC).strftime("%I:%M %p")
+                await connection_manager.send_to_game(
+                    game_id,
+                    {
+                        "type": "chat_message",
+                        "sender": sender,
+                        "text": text,
+                        "timestamp": now_ts,
+                        "time_remaining": state.get("chat_time_remaining", 300),
+                    }
+                )
+
+            elif action in ["extend_chat", "pay_demo"]:
+                current_game = game_service.get_game(game_id, db)
+                if current_game:
+                    current_game.extend_chat(5)
+                    game_service.save_game(current_game, db)
+                    try:
+                        u1 = db.query(User).filter(User.username == current_game.player1).first()
+                        u2 = db.query(User).filter(User.username == current_game.player2).first()
+                        if u1 and u2:
+                            chat_service.extend_chat(db, u1.id, u2.id, amount=10, payment_method="demo_upi")
+                    except Exception:
+                        pass
+
+                    await connection_manager.send_to_game(
+                        game_id,
+                        {
+                            "type": "chat_extended",
+                            "message": "Chat extended by +5 minutes through ₹10 DEMO payment!",
+                            "game": current_game.get_state(),
+                        }
+                    )
 
             elif action in ["cancel", "leave", "abort"]:
                 reason = data.get("reason", "board_changed")

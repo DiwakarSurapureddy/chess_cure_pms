@@ -473,6 +473,92 @@ export const api = {
     const data = await res.json().catch(() => ({ success: false }));
     return data;
   },
+
+  /**
+   * Check chat lock status & remaining countdown with a friend
+   */
+  async getChatStatus(token, friendId) {
+    if (!token) return { success: false, isFriend: false, isUnlocked: false };
+    const res = await fetch(`${BASE_URL}/chat/status/${encodeURIComponent(friendId)}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json().catch(() => ({ success: false, isFriend: false }));
+    return data;
+  },
+
+  /**
+   * Retrieve message history with a friend
+   */
+  async getChatMessages(token, friendId) {
+    if (!token) return { success: false, messages: [] };
+    const res = await fetch(`${BASE_URL}/chat/messages/${encodeURIComponent(friendId)}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json().catch(() => ({ success: false, messages: [] }));
+    return data;
+  },
+
+  /**
+   * Send a chat message to an accepted friend
+   */
+  async sendChatMessage(token, friendId, { text, game_id = null }) {
+    if (!token) throw new Error('Authentication required to send messages.');
+    const res = await fetch(`${BASE_URL}/chat/messages/${encodeURIComponent(friendId)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ text, game_id }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.detail || data.error || 'Failed to send message.');
+    }
+    return data;
+  },
+
+  /**
+   * Unlock chat session after piece capture in chess match
+   */
+  async unlockChat(token, friendId, payload = {}) {
+    if (!token) throw new Error('Authentication required.');
+    const res = await fetch(`${BASE_URL}/chat/unlock/${encodeURIComponent(friendId)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.detail || data.error || 'Failed to unlock chat.');
+    }
+    return data;
+  },
+
+  /**
+   * Extend chat timer by +5 minutes through ₹10 DEMO payment
+   */
+  async payDemoExtendChat(token, friendId, payload = { amount: 10, payment_method: 'demo_upi' }) {
+    if (!token) throw new Error('Authentication required.');
+    const res = await fetch(`${BASE_URL}/chat/pay-demo/${encodeURIComponent(friendId)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.detail || data.error || 'Payment failed.');
+    }
+    return data;
+  },
 };
 
 export default api;

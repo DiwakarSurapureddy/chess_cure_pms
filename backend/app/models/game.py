@@ -1,4 +1,4 @@
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from typing import Optional
 import uuid
 
@@ -74,6 +74,11 @@ class Game:
         self.result: Optional[str] = None
         self.winner: Optional[str] = None
 
+        self.captured_pieces = {"white": [], "black": []}
+        self.chat_unlocked = False
+        self.chat_unlock_reason: Optional[str] = None
+        self.chat_expires_at: Optional[str] = None
+
         self.created_at = datetime.now(UTC)
         self.updated_at = datetime.now(UTC)
 
@@ -86,6 +91,22 @@ class Game:
         self.result = "cancelled"
         self.updated_at = datetime.now(UTC)
 
+    def extend_chat(self, minutes: int = 5):
+        self.chat_unlocked = True
+        now = datetime.now(UTC)
+        if self.chat_expires_at:
+            try:
+                cur_exp = datetime.fromisoformat(self.chat_expires_at.replace("Z", "+00:00"))
+                if cur_exp > now:
+                    self.chat_expires_at = (cur_exp + timedelta(minutes=minutes)).isoformat()
+                else:
+                    self.chat_expires_at = (now + timedelta(minutes=minutes)).isoformat()
+            except Exception:
+                self.chat_expires_at = (now + timedelta(minutes=minutes)).isoformat()
+        else:
+            self.chat_expires_at = (now + timedelta(minutes=minutes)).isoformat()
+        self.updated_at = now
+
     def make_move(
         self,
         from_square: str,
@@ -97,16 +118,25 @@ class Game:
         if self.status == "completed":
             return False, "Game is already completed"
 
-        uci_str = from_square + to_square
-        try:
-            move = chess.Move.from_uci(uci_str)
-        except ValueError:
-            try:
-                move = chess.Move.from_uci(uci_str + "q")
-            except ValueError:
-                return False, "Invalid chess square"
+        uci_str = (from_square + to_square).lower()
+        move = None
 
-        if move not in self.board.legal_moves:
+        try:
+            m = chess.Move.from_uci(uci_str)
+            if m in self.board.legal_moves:
+                move = m
+        except ValueError:
+            pass
+
+        if move is None and len(uci_str) == 4:
+            try:
+                m = chess.Move.from_uci(uci_str + "q")
+                if m in self.board.legal_moves:
+                    move = m
+            except ValueError:
+                pass
+
+        if move is None or move not in self.board.legal_moves:
             return False, "Illegal chess move"
 
         player = (
@@ -114,8 +144,29 @@ class Game:
             if self.board.turn == chess.WHITE
             else self.player2
         )
-
+        is_white_turn = (self.board.turn == chess.WHITE)
         move_number = self.board.fullmove_number
+
+        # Capture validation with chess engine
+        is_capture = self.board.is_capture(move)
+        captured_symbol = None
+        if is_capture:
+            if self.board.is_en_passant(move):
+                captured_symbol = "p"
+            else:
+                target_p = self.board.piece_at(move.to_square)
+                captured_symbol = target_p.symbol().lower() if target_p else "p"
+
+            if is_white_turn:
+                self.captured_pieces["white"].append(captured_symbol)
+            else:
+                self.captured_pieces["black"].append(captured_symbol)
+
+            # Chat unlock requirement: capture opponent piece within first 5 moves
+            if move_number <= 5 and not self.chat_unlocked:
+                self.chat_unlocked = True
+                self.chat_unlock_reason = f"{player} captured opponent piece ({captured_symbol.upper()}) on move {move_number}"
+                self.chat_expires_at = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
 
         self.board.push(move)
 
@@ -125,6 +176,7 @@ class Game:
             "from_square": from_square,
             "to_square": to_square,
             "move": move.uci(),
+            "captured": captured_symbol,
             "fen": self.board.fen(),
             "timestamp": datetime.now(UTC).isoformat(),
         }
@@ -136,18 +188,42 @@ class Game:
 
         if self.board.is_game_over():
             self.status = "completed"
-            self.result = self.board.result()
-
-            if self.result == "1-0":
-                self.winner = self.player1
-            elif self.result == "0-1":
-                self.winner = self.player2
-            else:
+            if self.board.is_checkmate():
+                self.result = "checkmate"
+                self.winner = self.player2 if self.board.turn == chess.WHITE else self.player1
+            elif self.board.is_stalemate():
+                self.result = "stalemate"
                 self.winner = None
+            else:
+                self.result = self.board.result()
+                if self.result == "1-0":
+                    self.winner = self.player1
+                elif self.result == "0-1":
+                    self.winner = self.player2
+                else:
+                    self.winner = None
 
         return True, "Move played successfully"
 
     def get_state(self):
+        time_remaining = 0
+        if self.chat_unlocked and self.chat_expires_at:
+            try:
+                exp = datetime.fromisoformat(self.chat_expires_at.replace("Z", "+00:00"))
+                now = datetime.now(UTC)
+                time_remaining = max(0, int((exp - now).total_seconds()))
+                if time_remaining == 0:
+                    self.chat_unlocked = False
+            except Exception:
+                time_remaining = 0
+
+        is_check = self.board.is_check()
+        check_square = None
+        if is_check:
+            king_sq = self.board.king(self.board.turn)
+            if king_sq is not None:
+                check_square = chess.square_name(king_sq)
+
         return {
             "game_id": self.game_id,
             "player1": self.player1,
@@ -164,6 +240,15 @@ class Game:
                 else "black"
             ),
             "game_over": self.board.is_game_over(),
+            "is_check": is_check,
+            "is_checkmate": self.board.is_checkmate(),
+            "is_stalemate": self.board.is_stalemate(),
+            "check_square": check_square,
+            "captured_pieces": self.captured_pieces,
+            "chat_unlocked": self.chat_unlocked and time_remaining > 0,
+            "chat_unlock_reason": self.chat_unlock_reason,
+            "chat_expires_at": self.chat_expires_at,
+            "chat_time_remaining": time_remaining,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }

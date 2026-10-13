@@ -10,11 +10,13 @@ from app.models.user import User
 from app.models.game import CareerGame
 from app.models.profile import UserPreference
 from app.models.friend import FriendRequest
+from app.models.chat import ChatMessage, ChatUnlockSession
 from app.services.auth_service import seed_default_users
 from app.routers.auth import router as auth_router
 from app.routers.settings import router as settings_router
 from app.routers.profile import router as profile_router
 from app.routers.friends import router as friends_router
+from app.routers.chat import router as chat_router
 from app.routers import challenges, games
 from app.portal import get_portal_html
 from app.models.game import GameDB, MoveRequest
@@ -100,6 +102,10 @@ app.include_router(profile_router, prefix="/profile")
 app.include_router(friends_router, prefix="/api/friends")
 app.include_router(friends_router, prefix="/friends")
 
+# Include Chat & Unlocks Router
+app.include_router(chat_router, prefix="/api/chat")
+app.include_router(chat_router, prefix="/chat")
+
 app.include_router(games.router)
 app.include_router(challenges.router)
 
@@ -156,12 +162,24 @@ def get_board():
 
 @app.post("/api/move")
 def make_simple_move(request: MoveRequest):
+    uci_str = (request.from_square + request.to_square).lower()
+    move = None
     try:
-        move = chess.Move.from_uci(request.from_square + request.to_square)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid chess move format") from exc
+        m = chess.Move.from_uci(uci_str)
+        if m in board.legal_moves:
+            move = m
+    except ValueError:
+        pass
 
-    if move not in board.legal_moves:
+    if move is None and len(uci_str) == 4:
+        try:
+            m = chess.Move.from_uci(uci_str + "q")
+            if m in board.legal_moves:
+                move = m
+        except ValueError:
+            pass
+
+    if move is None or move not in board.legal_moves:
         raise HTTPException(status_code=400, detail="Illegal chess move")
 
     player_move = move.uci()

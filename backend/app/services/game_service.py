@@ -204,6 +204,22 @@ class GameService:
         if computer_move is None:
             return None, "No legal computer move available"
 
+        is_capture = game.board.is_capture(computer_move)
+        captured_symbol = None
+        if is_capture:
+            if game.board.is_en_passant(computer_move):
+                captured_symbol = "p"
+            else:
+                tp = game.board.piece_at(computer_move.to_square)
+                captured_symbol = tp.symbol().lower() if tp else "p"
+
+            game.captured_pieces["black"].append(captured_symbol)
+            if game.board.fullmove_number <= 5 and not game.chat_unlocked:
+                game.chat_unlocked = True
+                game.chat_unlock_reason = f"Computer captured opponent piece ({captured_symbol.upper()}) on move {game.board.fullmove_number}"
+                from datetime import datetime, UTC, timedelta
+                game.chat_expires_at = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
+
         game.board.push(computer_move)
 
         game.moves.append(computer_move.uci())
@@ -218,12 +234,20 @@ class GameService:
                 computer_move.to_square
             ),
             "move": computer_move.uci(),
+            "captured": captured_symbol,
             "fen": game.board.fen(),
         })
 
         if game.board.is_game_over():
             game.status = "completed"
-            game.result = game.board.result()
+            if game.board.is_checkmate():
+                game.result = "checkmate"
+                game.winner = game.player2 if game.board.turn == chess.WHITE else game.player1
+            elif game.board.is_stalemate():
+                game.result = "stalemate"
+                game.winner = None
+            else:
+                game.result = game.board.result()
 
         if db:
             self.save_game(game, db)

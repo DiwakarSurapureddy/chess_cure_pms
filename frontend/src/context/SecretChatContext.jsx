@@ -35,8 +35,9 @@ const GM_RESPONSES = [
 
 export function SecretChatProvider({ children }) {
   const [isChatUnlocked, setIsChatUnlocked] = useState(false);
-  const [timeRemaining, setTimeRemaining] = useState(120); // 120 seconds default session duration
+  const [timeRemaining, setTimeRemaining] = useState(300); // 300 seconds (5 minutes) session duration
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [unlockReason, setUnlockReason] = useState('Opponent piece captured within 5 moves');
   const [messages, setMessages] = useState(DEFAULT_MESSAGES);
   const [isTyping, setIsTyping] = useState(false);
@@ -52,7 +53,6 @@ export function SecretChatProvider({ children }) {
           if (prev <= 1) {
             clearInterval(timerRef.current);
             setIsChatUnlocked(false);
-            setIsChatModalOpen(false);
             setExpiredNotice(true);
             setTimeout(() => setExpiredNotice(false), 5000);
             return 0;
@@ -76,10 +76,10 @@ export function SecretChatProvider({ children }) {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Unlock function
+  // Unlock function (5-minute countdown)
   const unlockSecretChat = (reason = 'Opponent piece captured within 5 moves') => {
     setUnlockReason(reason);
-    setTimeRemaining(120); // 2 minutes limited time
+    setTimeRemaining(300); // 5 minutes limited time
     setIsChatUnlocked(true);
     setIsChatModalOpen(true);
     setExpiredNotice(false);
@@ -103,7 +103,35 @@ export function SecretChatProvider({ children }) {
         id: Date.now(),
         sender: 'network',
         author: 'Grandmaster Encrypted Network',
-        text: `⚡ Tactical Trigger Verified: ${reason}. Secure communication channel active for 2 minutes.`,
+        text: `⚡ Tactical Trigger Verified: ${reason}. Secure communication channel active for 5:00 minutes.`,
+        isSystem: true,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+    ]);
+  };
+
+  // Extend timer by +5 minutes through ₹10 DEMO payment
+  const extendWithDemoPayment = (amount = 10) => {
+    setTimeRemaining((prev) => Math.max(0, prev) + 300); // add 5 minutes (300 seconds)
+    setIsChatUnlocked(true);
+    setIsPaymentModalOpen(false);
+
+    try {
+      confetti({
+        particleCount: 80,
+        spread: 60,
+        origin: { y: 0.5 },
+        colors: ['#10b981', '#34d399', '#f59e0b'],
+      });
+    } catch (e) {}
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now(),
+        sender: 'network',
+        author: 'Secure Billing Node',
+        text: `💳 DEMO Payment Verified: ₹${amount} received in test mode. Chat timer extended by +5 minutes!`,
         isSystem: true,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       },
@@ -120,14 +148,13 @@ export function SecretChatProvider({ children }) {
 
   const lockSecretChat = () => {
     setIsChatUnlocked(false);
-    setIsChatModalOpen(false);
     setTimeRemaining(0);
     if (timerRef.current) clearInterval(timerRef.current);
   };
 
   // Send message
   const sendMessage = (text) => {
-    if (!text || !text.trim()) return;
+    if (!text || !text.trim() || !isChatUnlocked) return;
 
     const userMsg = {
       id: Date.now(),
@@ -162,11 +189,14 @@ export function SecretChatProvider({ children }) {
     timeRemaining,
     formattedTime: formatTime(timeRemaining),
     isChatModalOpen,
+    isPaymentModalOpen,
+    setIsPaymentModalOpen,
     unlockReason,
     messages,
     isTyping,
     expiredNotice,
     unlockSecretChat,
+    extendWithDemoPayment,
     openChatModal,
     closeChatModal,
     lockSecretChat,
@@ -186,19 +216,22 @@ export function useSecretChat() {
   if (!context) {
     return {
       isChatUnlocked: false,
-      timeRemaining: 120,
-      formattedTime: '02:00',
+      timeRemaining: 300,
+      formattedTime: '05:00',
       isChatModalOpen: false,
+      isPaymentModalOpen: false,
+      setIsPaymentModalOpen: () => {},
       unlockReason: '',
       messages: [],
       isTyping: false,
       expiredNotice: false,
       unlockSecretChat: () => {},
+      extendWithDemoPayment: () => {},
       openChatModal: () => {},
       closeChatModal: () => {},
       lockSecretChat: () => {},
       sendMessage: () => {},
-      formatTime: () => '02:00',
+      formatTime: () => '05:00',
     };
   }
   return context;

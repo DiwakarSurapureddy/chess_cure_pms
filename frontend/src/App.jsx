@@ -11,10 +11,11 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
 import Settings from './pages/Settings';
+import Chat from './pages/Chat';
 import { Swords, X, Users, User, ArrowRight, Loader2, Sparkles, Trophy, Hash, Search } from 'lucide-react';
 
 const VIEW_STORAGE_KEY = 'cc_active_view';
-const VALID_VIEWS = ['home', 'play', 'challenges', 'profile', 'settings', 'login', 'signup', 'forgot-password'];
+const VALID_VIEWS = ['home', 'play', 'challenges', 'profile', 'settings', 'login', 'signup', 'forgot-password', 'chat'];
 
 function getInitialView() {
   try {
@@ -241,6 +242,10 @@ function AppContent() {
 
         {currentView === 'settings' && (
           <Settings onNavigate={(tab) => navigateTo(tab)} />
+        )}
+
+        {currentView === 'chat' && (
+          <Chat onNavigate={(tab) => navigateTo(tab)} />
         )}
       </main>
 
