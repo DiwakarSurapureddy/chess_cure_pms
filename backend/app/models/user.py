@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Integer, Boolean, DateTime
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, Text
 from app.database import Base
 
 class User(Base):
@@ -13,7 +13,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=True)
     auth_provider = Column(String(20), default="local")  # local, google, facebook, guest
     auth_provider_id = Column(String(100), nullable=True)
-    avatar = Column(String(255), nullable=True)
+    avatar = Column(Text, nullable=True)
     skill = Column(String(30), default="intermediate")
     rating = Column(Integer, default=1200)
     title = Column(String(50), default="Tactical Aspirant")

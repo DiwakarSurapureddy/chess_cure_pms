@@ -1,3 +1,4 @@
+
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey
@@ -20,6 +21,6 @@ class UserPreference(Base):
             "boardTheme": self.board_theme,
             "pieceAudio": self.piece_audio,
             "secretMoveNotifications": self.secret_move_notifications,
-            "soundVolume": self.sound_volume,
+            "soundVolume": self.sound_volume if self.sound_volume is not None else 80,
             "showInstructions": self.show_instructions if self.show_instructions is not None else True,
         }

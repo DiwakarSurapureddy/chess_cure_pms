@@ -5,6 +5,9 @@ server/node_modules/
 frontend/dist/
 dist/
 .env
+.env.*
+backend/.env
+frontend/.env
 *.log
 .DS_Store
 venv/
@@ -12,4 +15,8 @@ venv/
 env/
 __pycache__/
 *.db
+*.sqlite
+*.sqlite3
+chess_cure.db
+backend/chess_cure.db
 .pytest_cache/

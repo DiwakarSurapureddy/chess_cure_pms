@@ -44,7 +44,7 @@ class PreferencesResponse(BaseModel):
     boardTheme: str
     pieceAudio: bool
     secretMoveNotifications: bool
-    soundVolume: int
+    soundVolume: Optional[int] = 80
     showInstructions: bool = True
 
 class ChangePasswordRequest(BaseModel):
