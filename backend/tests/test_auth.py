@@ -6,10 +6,9 @@ client = TestClient(app)
 
 @pytest.fixture(scope="module")
 def auth_headers():
-    # Login with seeded demo user
     response = client.post(
         "/api/auth/login",
-        json={"email": "grandmaster@chesscure.com", "password": "Checkmate2026!"}
+        json={"email": "diwa@gmail.com", "password": "diwa123"}
     )
     assert response.status_code == 200, f"Login failed: {response.text}"
     token = response.json()["token"]
@@ -23,7 +22,7 @@ def test_health():
 def test_login_invalid_password():
     res = client.post(
         "/api/auth/login",
-        json={"email": "grandmaster@chesscure.com", "password": "WrongPassword!"}
+        json={"email": "diwa@gmail.com", "password": "WrongPassword!"}
     )
     assert res.status_code in [400, 401]
     assert res.json()["success"] is False

@@ -54,58 +54,8 @@ def generate_sequential_game_id(db: Session) -> str:
     return str(max_id + 1)
 
 def seed_default_users(db: Session):
-    """Seed demo and testing accounts if not already present."""
-    # 1. Grandmaster demo account
-    gm_email = "grandmaster@chesscure.com"
-    existing_gm = db.query(User).filter(User.email == gm_email).first()
-    if not existing_gm:
-        gm_user = User(
-            username="GrandmasterMaster",
-            email=gm_email,
-            mobile_number="+1 555-019-2834",
-            hashed_password=get_password_hash("Checkmate2026!"),
-            auth_provider="local",
-            skill="advanced",
-            rating=2150,
-            title="Grandmaster",
-            wins=82,
-            losses=42,
-            draws=8,
-            puzzles_solved=342,
-            player_id="100001",
-            is_guest=False,
-            is_active=True
-        )
-        db.add(gm_user)
-    else:
-        existing_gm.player_id = "100001"
-
-    # 2. Master demo account
-    master_email = "master@chesscure.com"
-    existing_master = db.query(User).filter(User.email == master_email).first()
-    if not existing_master:
-        master_user = User(
-            username="MasterStrategist",
-            email=master_email,
-            mobile_number="+1 555-019-2835",
-            hashed_password=get_password_hash("Checkmate2026!"),
-            auth_provider="local",
-            skill="master",
-            rating=2050,
-            title="International Master",
-            wins=64,
-            losses=18,
-            draws=10,
-            puzzles_solved=280,
-            player_id="100002",
-            is_guest=False,
-            is_active=True
-        )
-        db.add(master_user)
-    else:
-        existing_master.player_id = "100002"
-
-    # 3. diwa primary account
+    """Ensure primary accounts (diwa and BenSpidy) have correct Game IDs."""
+    # 1. diwa primary account (Game ID: 100001)
     diwa_email = "diwa@gmail.com"
     existing_diwa = db.query(User).filter((User.email == diwa_email) | (User.username == "diwa")).first()
     if not existing_diwa:
@@ -122,55 +72,24 @@ def seed_default_users(db: Session):
             losses=1,
             draws=1,
             puzzles_solved=68,
-            player_id="100003",
+            player_id="100001",
             is_guest=False,
             is_active=True
         )
         db.add(diwa_user)
     else:
-        existing_diwa.hashed_password = get_password_hash("diwa123")
-        existing_diwa.player_id = "100003"
+        existing_diwa.player_id = "100001"
 
-    # 4. Sumathi Gajjala account (starts with 0 as new player)
-    sumathi_email = "gajjalasumathi502@gmail.com"
-    existing_sumathi = db.query(User).filter((User.email == sumathi_email) | (User.username == "Sumathi Gajjala")).first()
-    if not existing_sumathi:
-        sumathi_user = User(
-            username="Sumathi Gajjala",
-            email=sumathi_email,
-            mobile_number="8688830691",
-            hashed_password=get_password_hash("diwa123"),
-            auth_provider="local",
-            skill="beginner",
-            rating=850,
-            title="Apprentice",
-            wins=0,
-            losses=0,
-            draws=0,
-            puzzles_solved=0,
-            player_id="100004",
-            is_guest=False,
-            is_active=True
-        )
-        db.add(sumathi_user)
-    else:
-        existing_sumathi.hashed_password = get_password_hash("diwa123")
-        existing_sumathi.player_id = "100004"
+    # 2. BenSpidy account (Game ID: 100002)
+    benspidy_user = db.query(User).filter(
+        (User.username == "BenSpidy") | (User.email.like("%122096849649502202%"))
+    ).first()
+    if benspidy_user:
+        benspidy_user.player_id = "100002"
 
     db.commit()
 
-    # Seed initial demo and career games if not present
     from app.models.game import CareerGame
-    target_gm = existing_gm or db.query(User).filter(User.email == gm_email).first()
-    if target_gm and db.query(CareerGame).filter(CareerGame.user_id == target_gm.id).count() == 0:
-        demo_games = [
-            CareerGame(user_id=target_gm.id, opponent="Stockfish Engine (Lvl 4)", mode="vs Computer", result="Won", method="Checkmate", moves=32, rating_change="+18"),
-            CareerGame(user_id=target_gm.id, opponent="MagnusFan99", mode="Online Match", result="Won", method="Resignation", moves=24, rating_change="+14"),
-            CareerGame(user_id=target_gm.id, opponent="Alex_Rook", mode="Online Match", result="Lost", method="Time Out", moves=45, rating_change="-11"),
-            CareerGame(user_id=target_gm.id, opponent="Guest_7841", mode="Two Players", result="Won", method="Checkmate", moves=19, rating_change="+8")
-        ]
-        db.add_all(demo_games)
-        db.commit()
 
     # Seed played games for diwa if empty
     target_diwa = db.query(User).filter(User.email == diwa_email).first()
@@ -269,14 +188,10 @@ def authenticate_user(
 
     # Ensure existing user has a 6-digit sequential game ID starting from 100001
     if not user.player_id or not user.player_id.isdigit() or len(user.player_id) != 6:
-        if user.email == "grandmaster@chesscure.com":
+        if user.email == "diwa@gmail.com" or user.username == "diwa":
             user.player_id = "100001"
-        elif user.email == "master@chesscure.com":
+        elif "benspidy" in (user.username or "").lower() or "122096849649502202" in (user.email or ""):
             user.player_id = "100002"
-        elif user.email == "diwa@gmail.com" or user.username == "diwa":
-            user.player_id = "100003"
-        elif "sumathi" in user.email.lower() or "sumathi" in user.username.lower():
-            user.player_id = "100004"
         else:
             user.player_id = generate_sequential_game_id(db)
         db.commit()
