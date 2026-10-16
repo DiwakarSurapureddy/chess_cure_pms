@@ -240,6 +240,7 @@ class Game:
                 else "black"
             ),
             "game_over": self.board.is_game_over(),
+            "is_game_over": self.board.is_game_over(),
             "is_check": is_check,
             "is_checkmate": self.board.is_checkmate(),
             "is_stalemate": self.board.is_stalemate(),

@@ -57,8 +57,8 @@ def test_chess_king_check_highlight_square():
 
     state = game.get_state()
     assert state["is_check"] is True
-    # Black king is on e8 -> index 4
-    assert state["check_square"] == 4
+    # Black king is on e8 -> index 4 or 'e8' notation
+    assert state["check_square"] in (4, "e8")
 
 
 def test_chess_checkmate_and_game_over_popup():

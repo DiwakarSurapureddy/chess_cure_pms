@@ -87,6 +87,13 @@ def seed_default_users(db: Session):
     if benspidy_user:
         benspidy_user.player_id = "100002"
 
+    # 3. ram account (Game ID: 100003)
+    ram_user = db.query(User).filter(
+        (User.username.ilike("ram")) | (User.email.ilike("ram%@gmail.com"))
+    ).first()
+    if ram_user:
+        ram_user.player_id = "100003"
+
     db.commit()
 
     from app.models.game import CareerGame
@@ -192,6 +199,8 @@ def authenticate_user(
             user.player_id = "100001"
         elif "benspidy" in (user.username or "").lower() or "122096849649502202" in (user.email or ""):
             user.player_id = "100002"
+        elif (user.username or "").lower() == "ram" or "ram" in (user.email or "").lower():
+            user.player_id = "100003"
         else:
             user.player_id = generate_sequential_game_id(db)
         db.commit()
