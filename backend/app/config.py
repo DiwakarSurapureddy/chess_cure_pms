@@ -4,16 +4,17 @@ from typing import List
 from dotenv import load_dotenv
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_DB_PATH = BACKEND_DIR / "chess_cure.db"
-
 # Load environment variables from .env
 load_dotenv(BACKEND_DIR / ".env")
 load_dotenv()
 
-raw_db_url = os.getenv("DATABASE_URL", f"sqlite:///{DEFAULT_DB_PATH.as_posix()}")
-# If user hasn't replaced the placeholder yet, fallback safely to local SQLite
-if "YOUR_PASSWORD_HERE" in raw_db_url:
-    raw_db_url = f"sqlite:///{DEFAULT_DB_PATH.as_posix()}"
+# Cloud Neon PostgreSQL Database URL (Unified across all team members and environments)
+DEFAULT_NEON_URL = "postgresql://neondb_owner:npg_mMPI6FHs5uxb@ep-floral-fog-b3ljxoce-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
+
+raw_db_url = os.getenv("DATABASE_URL")
+# If DATABASE_URL is not set or contains placeholders, always use Neon Cloud PostgreSQL
+if not raw_db_url or "YOUR_PASSWORD_HERE" in raw_db_url:
+    raw_db_url = DEFAULT_NEON_URL
 
 # SQLAlchemy 2.0 requires 'postgresql://' instead of legacy 'postgres://'
 if raw_db_url and raw_db_url.startswith("postgres://"):

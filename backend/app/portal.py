@@ -134,11 +134,11 @@ def get_portal_html() -> str:
         <div class="logo-badge">♞</div>
         <div>
           <div class="brand-title">Chess<span>Cure</span> Backend</div>
-          <p style="font-size: 12px; color: var(--text-muted);">Unified SQLite Backend & Auth Control Center</p>
+          <p style="font-size: 12px; color: var(--text-muted);">Unified Neon Cloud PostgreSQL Backend & Auth Control Center</p>
         </div>
       </div>
       <div style="display: flex; gap: 10px; align-items: center;">
-        <span class="badge badge-live">● SQLite Active</span>
+        <span class="badge badge-live">● Neon Cloud Active</span>
         <a href="http://localhost:3000" target="_blank" style="color: var(--primary); font-size: 13px; font-weight: 600; text-decoration: none; padding: 6px 14px; border: 1px solid var(--primary); border-radius: 8px;">Open Frontend (Port 3000) ↗</a>
         <a href="/docs" target="_blank" style="color: #fff; font-size: 13px; text-decoration: none; padding: 6px 14px; border: 1px solid #334155; border-radius: 8px;">Swagger /docs ↗</a>
       </div>
@@ -151,15 +151,15 @@ def get_portal_html() -> str:
       <button class="tab-btn" onclick="switchTab('login-tab', this)" id="loginTabBtn">🔑 2. Login (POST)</button>
       <button class="tab-btn" onclick="switchTab('social-tab', this)">🌐 3. Social / Guest</button>
       <button class="tab-btn" onclick="switchTab('profile-tab', this)">👤 4. Profile & Update (GET / PUT)</button>
-      <button class="tab-btn" onclick="switchTab('users-tab', this)" id="tabUsersBtn">👥 5. SQLite Users & Delete (GET / DELETE)</button>
+      <button class="tab-btn" onclick="switchTab('users-tab', this)" id="tabUsersBtn">👥 5. Neon Cloud Users & Delete (GET / DELETE)</button>
     </div>
 
     <div class="main-grid">
       <div class="card">
         <!-- 1. SIGNUP FORM -->
         <div id="register-tab" class="tab-content active">
-          <div class="card-title">Create Account in SQLite Database <span class="badge" style="background:#1e293b; color:var(--accent-green);">POST /api/auth/register</span></div>
-          <p class="card-sub">No OTP required. Account is saved directly into backend SQLite database.</p>
+          <div class="card-title">Create Account in Neon Cloud Database <span class="badge" style="background:#1e293b; color:var(--accent-green);">POST /api/auth/register</span></div>
+          <p class="card-sub">No OTP required. Account is saved directly into backend Neon Cloud PostgreSQL database.</p>
           <form id="registerForm" onsubmit="handleRegister(event)">
             <div class="form-group">
               <label>Username</label>
@@ -261,8 +261,8 @@ def get_portal_html() -> str:
 
         <!-- 5. USERS & DELETE -->
         <div id="users-tab" class="tab-content">
-          <div class="card-title">SQLite Database Accounts <span class="badge" style="background:#1e293b; color:var(--accent-red);">GET / DELETE</span></div>
-          <button class="btn btn-secondary" onclick="loadAllUsers()" style="margin-bottom: 16px;">🔄 Refresh Accounts from SQLite</button>
+          <div class="card-title">Neon Cloud Database Accounts <span class="badge" style="background:#1e293b; color:var(--accent-red);">GET / DELETE</span></div>
+          <button class="btn btn-secondary" onclick="loadAllUsers()" style="margin-bottom: 16px;">🔄 Refresh Accounts from Neon Cloud</button>
           <div id="usersListContainer">
             <p style="font-size: 13px; color: var(--text-muted);">Click button to load stored accounts.</p>
           </div>
@@ -275,11 +275,11 @@ def get_portal_html() -> str:
           <span id="responseStatus" class="badge badge-live">READY</span>
         </div>
         <div class="console-box" id="consoleOutput">
-// Live API response from SQLite backend will appear here...
+// Live API response from Neon Cloud backend will appear here...
         </div>
         <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
           <button class="quick-btn" onclick="clearConsole()">Clear Output</button>
-          <span style="font-size: 11px; color: var(--text-muted);">Database: SQLite (chess_cure.db)</span>
+          <span style="font-size: 11px; color: var(--text-muted);">Database: Neon Cloud PostgreSQL</span>
         </div>
       </div>
     </div>
