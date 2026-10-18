@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SecretChatProvider } from './context/SecretChatContext';
-import SecretChatModal from './components/chat/SecretChatModal';
 import Navbar from './components/layout/Navbar';
 import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
@@ -147,6 +146,8 @@ function AppContent() {
               setModalStatusMsg('🎉 Challenge Accepted! Loading live match...');
               setActiveOnlineMatch({
                 gameId: res.gameId,
+                opponentPlayerId: friend.playerId || friend.id,
+                opponentId: friend.id || friend.playerId,
                 player1: user?.username || 'Player 1',
                 player2: friend.username || friend.name,
                 playerColor: 'w',
@@ -417,7 +418,6 @@ export default function App() {
     <AuthProvider>
       <SecretChatProvider>
         <AppContent />
-        <SecretChatModal />
       </SecretChatProvider>
     </AuthProvider>
   );

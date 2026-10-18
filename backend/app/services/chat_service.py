@@ -139,7 +139,7 @@ class ChatService:
         if not session.check_and_update_expiry():
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Chat is locked. Unlock by capturing an opponent's piece within 5 moves in a chess match, or extend with ₹10 DEMO payment."
+                detail="Chat is locked. Unlock by capturing an opponent's piece in an online chess match, or extend with ₹10 DEMO payment."
             )
 
         msg = ChatMessage(

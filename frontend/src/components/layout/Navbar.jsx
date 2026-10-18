@@ -37,6 +37,8 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [notificationAction, setNotificationAction] = useState(null);
+  const [notificationError, setNotificationError] = useState('');
 
   const profileRef = useRef(null);
   const notifRef = useRef(null);
@@ -69,6 +71,41 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
     setMobileMenuOpen(false);
     setNotifOpen(false);
     setProfileOpen(false);
+  };
+
+  const handleNotificationAction = async (notification, action, isMatch) => {
+    setNotificationAction(`${notification.id}:${action}`);
+    setNotificationError('');
+
+    try {
+      const response = isMatch
+        ? await respondMatchChallenge(notification.id, action)
+        : await respondFriendRequest(notification.id, action);
+
+      if (!response?.success) {
+        throw new Error(response?.message || 'Unable to process this notification.');
+      }
+
+      if (isMatch && action === 'accept') {
+        if (!response.gameId) {
+          throw new Error('The challenge was accepted, but no game was returned.');
+        }
+        setActiveOnlineMatch({
+          gameId: response.gameId,
+          opponentPlayerId: notification.senderPlayerId,
+          opponentId: notification.senderId,
+          player1: response.player1,
+          player2: response.player2,
+          playerColor: 'b',
+          opponentName: notification.senderUsername || response.player1,
+        });
+        handleNavClick('play');
+      }
+    } catch (error) {
+      setNotificationError(error.message || 'Unable to process this notification.');
+    } finally {
+      setNotificationAction(null);
+    }
   };
 
   const notificationsList = [
@@ -217,7 +254,7 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
               className={`px-3.5 py-1.5 flex flex-col items-center justify-center transition-all group relative ${
                 activeTab === 'chat' || isChatUnlocked ? 'text-amber-300 font-bold' : 'text-slate-400 hover:text-white'
               }`}
-              title={isChatUnlocked ? `Secret Chat Channel (${formattedTime} remaining)` : 'Secret Chat Channel (Capture opponent piece within 5 moves to unlock)'}
+              title={isChatUnlocked ? `Secret Chat Channel (${formattedTime} remaining)` : 'Secret Chat Channel (Capture an opponent piece in an online match to unlock)'}
             >
               <div className="relative">
                 <MessageSquare className={`w-4 h-4 group-hover:scale-110 transition-all ${
@@ -330,11 +367,19 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
                       <span className="text-[10px] text-slate-500">All caught up</span>
                     )}
                   </div>
+
+                  {notificationError && (
+                    <p role="alert" className="px-4 py-2 text-[11px] text-rose-300 bg-rose-500/10 border-b border-rose-500/20">
+                      {notificationError}
+                    </p>
+                  )}
                   
                   <div className="divide-y divide-slate-800/70 max-h-72 overflow-y-auto">
                     {friendNotifications.length > 0 ? (
                       friendNotifications.map((notif) => {
                         const isMatch = notif.type === 'match_challenge';
+                        const isAccepting = notificationAction === `${notif.id}:accept`;
+                        const isDeclining = notificationAction === `${notif.id}:decline`;
                         return (
                           <div key={notif.id} className="p-3.5 hover:bg-slate-800/50 transition-colors space-y-2">
                             <div className="flex items-center justify-between">
@@ -354,50 +399,36 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
                               {isMatch ? (
                                 <>
                                   <button
-                                    onClick={async () => {
-                                      const res = await respondMatchChallenge(notif.id, 'accept');
-                                      if (res?.success) {
-                                        setActiveOnlineMatch({
-                                          gameId: res.gameId,
-                                          player1: res.player1,
-                                          player2: res.player2,
-                                          playerColor: 'b',
-                                          opponentName: res.player1,
-                                        });
-                                        handleNavClick('play');
-                                      }
-                                    }}
-                                    className="px-3 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-black font-extrabold text-[10px] uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer transition-all"
+                                    onClick={() => handleNotificationAction(notif, 'accept', true)}
+                                    disabled={Boolean(notificationAction)}
+                                    className="px-3 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 disabled:opacity-50 text-black font-extrabold text-[10px] uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer transition-all"
                                   >
                                     <Swords className="w-3 h-3" />
-                                    <span>Accept & Play</span>
+                                    <span>{isAccepting ? 'Accepting...' : 'Accept & Play'}</span>
                                   </button>
                                   <button
-                                    onClick={async () => {
-                                      await respondMatchChallenge(notif.id, 'decline');
-                                    }}
-                                    className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-300 text-[10px] font-bold border border-slate-700 cursor-pointer transition-colors"
+                                    onClick={() => handleNotificationAction(notif, 'decline', true)}
+                                    disabled={Boolean(notificationAction)}
+                                    className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-rose-300 text-[10px] font-bold border border-slate-700 cursor-pointer transition-colors"
                                   >
-                                    <span>✕ Decline</span>
+                                    <span>{isDeclining ? 'Declining...' : '✕ Decline'}</span>
                                   </button>
                                 </>
                               ) : (
                                 <>
                                   <button
-                                    onClick={async () => {
-                                      await respondFriendRequest(notif.id, 'accept');
-                                    }}
-                                    className="px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-extrabold text-[10px] uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer transition-colors"
+                                    onClick={() => handleNotificationAction(notif, 'accept', false)}
+                                    disabled={Boolean(notificationAction)}
+                                    className="px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-extrabold text-[10px] uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer transition-colors"
                                   >
-                                    <span>✓ Accept</span>
+                                    <span>{isAccepting ? 'Accepting...' : '✓ Accept'}</span>
                                   </button>
                                   <button
-                                    onClick={async () => {
-                                      await respondFriendRequest(notif.id, 'decline');
-                                    }}
-                                    className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-rose-300 text-[10px] font-bold border border-slate-700 cursor-pointer transition-colors"
+                                    onClick={() => handleNotificationAction(notif, 'decline', false)}
+                                    disabled={Boolean(notificationAction)}
+                                    className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-rose-300 text-[10px] font-bold border border-slate-700 cursor-pointer transition-colors"
                                   >
-                                    <span>✕ Decline</span>
+                                    <span>{isDeclining ? 'Declining...' : '✕ Decline'}</span>
                                   </button>
                                 </>
                               )}

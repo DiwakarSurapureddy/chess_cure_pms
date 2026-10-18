@@ -545,19 +545,31 @@ export const api = {
    */
   async payDemoExtendChat(token, friendId, payload = { amount: 10, payment_method: 'demo_upi' }) {
     if (!token) throw new Error('Authentication required.');
-    const res = await fetch(`${BASE_URL}/chat/pay-demo/${encodeURIComponent(friendId)}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.detail || data.error || 'Payment failed.');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(`${BASE_URL}/chat/pay-demo/${encodeURIComponent(friendId)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.detail || data.error || 'Payment failed.');
+      }
+      return data;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Demo payment request timed out. Please check your connection and try again.');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
     }
-    return data;
   },
 };
 

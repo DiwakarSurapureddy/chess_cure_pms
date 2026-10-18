@@ -3,88 +3,115 @@ import confetti from 'canvas-confetti';
 
 const SecretChatContext = createContext(null);
 
-const DEFAULT_MESSAGES = [
-  {
-    id: 1,
-    sender: 'network',
-    author: 'Grandmaster Encrypted Network',
-    text: 'You discovered the hidden move. Secret chat channel is now initialized.',
-    isSystem: true,
-    timestamp: 'Just now',
-  },
-  {
-    id: 2,
-    sender: 'system',
-    author: 'Tactical Node #7',
-    text: 'Ready to send secure real-time messages.',
-    isSystem: false,
-    timestamp: 'Just now',
-  },
-];
+const STORAGE_SESSION_KEY = 'cc_chat_unlock_session';
 
-// Contextual intelligent responses from the encrypted Grandmaster network
-const GM_RESPONSES = [
-  "Encrypted Transmission: Superb tactical kill in the opening! Notice how the center squares (e4, d4, e5, d5) are now vulnerable for invasion.",
-  "Grandmaster Node Alpha: Your piece capture within the first 5 moves disrupted your opponent's development tempo by +1.4 evaluation.",
-  "Tactical Advisory: Look to deploy your knights to forward outposts. A knight anchored on the 5th or 6th rank is worth a rook.",
-  "Encrypted Network: Transmission received. Stockfish evaluates your king safety as optimal. Keep vigilance over potential back-rank tactics.",
-  "Grandmaster Leo: Excellent initiative. Whenever you gain material advantage early, simplify into a winning endgame or press the kingside attack!",
-  "Tactical Node #7: Secure link confirmed. We recommend preparing a rook lift along the 3rd rank for maximum offensive firepower.",
-  "Encrypted GM Dispatch: Hidden line detected: Sacrifice the bishop on h7 only if your queen and knight can coordinate immediately.",
-];
+const formatTime = (secs) => {
+  const safeSecs = Math.max(0, Math.floor(secs || 0));
+  const m = Math.floor(safeSecs / 60);
+  const s = safeSecs % 60;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+};
 
 export function SecretChatProvider({ children }) {
-  const [isChatUnlocked, setIsChatUnlocked] = useState(false);
-  const [timeRemaining, setTimeRemaining] = useState(300); // 300 seconds (5 minutes) session duration
+  const [session, setSession] = useState(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_SESSION_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.expiresAt) {
+          const remaining = Math.max(0, Math.floor((new Date(parsed.expiresAt).getTime() - Date.now()) / 1000));
+          if (remaining > 0) {
+            return {
+              isUnlocked: true,
+              timeRemaining: remaining,
+              expiresAt: parsed.expiresAt,
+              unlockReason: parsed.unlockReason || 'Opponent piece captured within 5 moves',
+              friendId: parsed.friendId || null,
+            };
+          }
+        }
+      }
+    } catch {}
+    return {
+      isUnlocked: false,
+      timeRemaining: 0,
+      expiresAt: null,
+      unlockReason: '',
+      friendId: null,
+    };
+  });
+
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-  const [unlockReason, setUnlockReason] = useState('Opponent piece captured within 5 moves');
-  const [messages, setMessages] = useState(DEFAULT_MESSAGES);
-  const [isTyping, setIsTyping] = useState(false);
-  const [expiredNotice, setExpiredNotice] = useState(false);
-
   const timerRef = useRef(null);
 
-  // Countdown timer effect
+  // Single monotonic countdown timer effect based strictly on expiresAt
   useEffect(() => {
-    if (isChatUnlocked && timeRemaining > 0) {
-      timerRef.current = setInterval(() => {
-        setTimeRemaining((prev) => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current);
-            setIsChatUnlocked(false);
-            setExpiredNotice(true);
-            setTimeout(() => setExpiredNotice(false), 5000);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
+    if (session.isUnlocked && session.expiresAt) {
       if (timerRef.current) clearInterval(timerRef.current);
+
+      const tick = () => {
+        const expTime = new Date(session.expiresAt).getTime();
+        const now = Date.now();
+        const diff = Math.max(0, Math.floor((expTime - now) / 1000));
+
+        if (diff <= 0) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          timerRef.current = null;
+          setSession((prev) => ({
+            ...prev,
+            isUnlocked: false,
+            timeRemaining: 0,
+          }));
+          try {
+            localStorage.removeItem(STORAGE_SESSION_KEY);
+          } catch {}
+        } else {
+          setSession((prev) => (prev.timeRemaining === diff ? prev : { ...prev, timeRemaining: diff }));
+        }
+      };
+
+      tick();
+      timerRef.current = setInterval(tick, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     }
 
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
     };
-  }, [isChatUnlocked, timeRemaining]);
+  }, [session.isUnlocked, session.expiresAt]);
 
-  // Format MM:SS
-  const formatTime = (secs) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
+  // Unlock secret chat session for 5 minutes (300 seconds)
+  const unlockSecretChat = (params = 'Opponent piece captured within 5 moves') => {
+    let reason = typeof params === 'string' ? params : (params?.reason || 'Opponent piece captured within 5 moves');
+    let friendId = typeof params === 'object' ? params?.friendId : null;
+    let durationSeconds = typeof params === 'object' && params?.durationSeconds ? params.durationSeconds : 300;
+    
+    const expiresAt = new Date(Date.now() + durationSeconds * 1000).toISOString();
 
-  // Unlock function (5-minute countdown)
-  const unlockSecretChat = (reason = 'Opponent piece captured within 5 moves') => {
-    setUnlockReason(reason);
-    setTimeRemaining(300); // 5 minutes limited time
-    setIsChatUnlocked(true);
-    setIsChatModalOpen(true);
-    setExpiredNotice(false);
+    const newSession = {
+      isUnlocked: true,
+      timeRemaining: durationSeconds,
+      expiresAt,
+      unlockReason: reason,
+      friendId,
+    };
 
-    // Blast celebratory confetti
+    setSession(newSession);
+    setIsChatModalOpen(false);
+
+    try {
+      localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(newSession));
+    } catch {}
+
+    // Celebratory confetti
     try {
       confetti({
         particleCount: 110,
@@ -92,115 +119,43 @@ export function SecretChatProvider({ children }) {
         origin: { y: 0.55 },
         colors: ['#f59e0b', '#fbbf24', '#d97706', '#ffffff', '#10b981'],
       });
-    } catch (e) {
-      // ignore
-    }
-
-    // Append unlock announcement
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        sender: 'network',
-        author: 'Grandmaster Encrypted Network',
-        text: `⚡ Tactical Trigger Verified: ${reason}. Secure communication channel active for 5:00 minutes.`,
-        isSystem: true,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      },
-    ]);
-  };
-
-  // Extend timer by +5 minutes through ₹10 DEMO payment
-  const extendWithDemoPayment = (amount = 10) => {
-    setTimeRemaining((prev) => Math.max(0, prev) + 300); // add 5 minutes (300 seconds)
-    setIsChatUnlocked(true);
-    setIsPaymentModalOpen(false);
-
-    try {
-      confetti({
-        particleCount: 80,
-        spread: 60,
-        origin: { y: 0.5 },
-        colors: ['#10b981', '#34d399', '#f59e0b'],
-      });
-    } catch (e) {}
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        sender: 'network',
-        author: 'Secure Billing Node',
-        text: `💳 DEMO Payment Verified: ₹${amount} received in test mode. Chat timer extended by +5 minutes!`,
-        isSystem: true,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      },
-    ]);
-  };
-
-  const openChatModal = () => {
-    setIsChatModalOpen(true);
-  };
-
-  const closeChatModal = () => {
-    setIsChatModalOpen(false);
+    } catch {}
   };
 
   const lockSecretChat = () => {
-    setIsChatUnlocked(false);
-    setTimeRemaining(0);
-    if (timerRef.current) clearInterval(timerRef.current);
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setSession({
+      isUnlocked: false,
+      timeRemaining: 0,
+      expiresAt: null,
+      unlockReason: '',
+      friendId: null,
+    });
+    try {
+      localStorage.removeItem(STORAGE_SESSION_KEY);
+    } catch {}
   };
 
-  // Send message
-  const sendMessage = (text) => {
-    if (!text || !text.trim() || !isChatUnlocked) return;
-
-    const userMsg = {
-      id: Date.now(),
-      sender: 'user',
-      author: 'You (Grandmaster)',
-      text: text.trim(),
-      isSystem: false,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-    setIsTyping(true);
-
-    // Generate GM reply after short realistic delay
-    setTimeout(() => {
-      const randomResponse = GM_RESPONSES[Math.floor(Math.random() * GM_RESPONSES.length)];
-      const gmMsg = {
-        id: Date.now() + 1,
-        sender: 'agent',
-        author: 'Grandmaster Encrypted Network',
-        text: randomResponse,
-        isSystem: false,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, gmMsg]);
-      setIsTyping(false);
-    }, 700);
-  };
+  const openChatModal = () => setIsChatModalOpen(false);
+  const closeChatModal = () => setIsChatModalOpen(false);
 
   const value = {
-    isChatUnlocked,
-    timeRemaining,
-    formattedTime: formatTime(timeRemaining),
+    isChatUnlocked: session.isUnlocked,
+    timeRemaining: session.timeRemaining,
+    formattedTime: formatTime(session.timeRemaining),
+    expiresAt: session.expiresAt,
+    unlockReason: session.unlockReason,
+    unlockedFriendId: session.friendId,
     isChatModalOpen,
     isPaymentModalOpen,
     setIsPaymentModalOpen,
-    unlockReason,
-    messages,
-    isTyping,
-    expiredNotice,
     unlockSecretChat,
-    extendWithDemoPayment,
+    lockSecretChat,
     openChatModal,
     closeChatModal,
-    lockSecretChat,
-    sendMessage,
     formatTime,
   };
 
@@ -216,25 +171,23 @@ export function useSecretChat() {
   if (!context) {
     return {
       isChatUnlocked: false,
-      timeRemaining: 300,
-      formattedTime: '05:00',
+      timeRemaining: 0,
+      formattedTime: '00:00',
+      expiresAt: null,
+      unlockReason: '',
+      unlockedFriendId: null,
       isChatModalOpen: false,
       isPaymentModalOpen: false,
       setIsPaymentModalOpen: () => {},
-      unlockReason: '',
-      messages: [],
-      isTyping: false,
-      expiredNotice: false,
       unlockSecretChat: () => {},
-      extendWithDemoPayment: () => {},
+      lockSecretChat: () => {},
       openChatModal: () => {},
       closeChatModal: () => {},
-      lockSecretChat: () => {},
-      sendMessage: () => {},
-      formatTime: () => '05:00',
+      formatTime: () => '00:00',
     };
   }
   return context;
 }
 
 export default SecretChatContext;
+

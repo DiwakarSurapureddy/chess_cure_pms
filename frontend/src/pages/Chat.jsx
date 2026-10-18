@@ -28,7 +28,11 @@ import {
   ShieldCheck,
   ChevronRight,
   Sparkles,
-  Info
+  Info,
+  Bot,
+  Smartphone,
+  Wallet,
+  AtSign
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../context/AuthContext';
@@ -43,12 +47,13 @@ const QUICK_PROMPTS = [
   '🎯 Great game earlier!',
   '🏆 Good luck in your matches!',
 ];
+const EMPTY_FRIENDS = [];
 
 export default function Chat({ onNavigate }) {
   const { 
     user, 
     token, 
-    friendsList = [], 
+    friendsList = EMPTY_FRIENDS,
     friendNotifications = [],
     sendFriendRequest,
     respondFriendRequest,
@@ -60,6 +65,7 @@ export default function Chat({ onNavigate }) {
   // Selected Friend in Chat
   const [selectedFriendId, setSelectedFriendId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
   const [inputVal, setInputVal] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showInfoDrawer, setShowInfoDrawer] = useState(false);
@@ -82,65 +88,167 @@ export default function Chat({ onNavigate }) {
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [sendError, setSendError] = useState('');
 
-  // DEMO Payment Modal State (Requirement 9 & 10)
+  // Premium extension stays informational until a genuine payment provider is configured.
   const [demoPaymentModal, setDemoPaymentModal] = useState({
     isOpen: false,
-    step: 'select_method', // 'select_method' | 'processing' | 'success' | 'failure'
-    method: 'upi',
-    upiId: 'demo_player@okaxis',
-    amount: 10,
-    error: '',
   });
 
   const messagesEndRef = useRef(null);
   const chatPollRef = useRef(null);
   const timerCountdownRef = useRef(null);
+  const paymentInFlightRef = useRef(false);
+  const chatSyncInFlightRef = useRef(null);
+  const chatStatusRequestVersionRef = useRef(0);
+  const paymentUnlockConfirmedAtRef = useRef(0);
+  const captureUnlockHandoffRef = useRef(null);
 
-  // Auto-select first accepted friend if none selected
+  // A capture stores the opponent before navigating here. Prefer that selection
+  // when the accepted-friends list arrives, then clear the one-shot handoff.
   useEffect(() => {
-    if (friendsList.length > 0 && !selectedFriendId) {
-      setSelectedFriendId(friendsList[0].id || friendsList[0].playerId);
-    } else if (friendsList.length === 0) {
+    if (!friendsList.length) {
       setSelectedFriendId(null);
       setChatMessages([]);
       setChatStatus({ isUnlocked: false, timeRemainingSeconds: 0, expiresAt: null });
+      return;
     }
+    if (selectedFriendId && friendsList.some((friend) =>
+      friend.id === selectedFriendId || friend.playerId === selectedFriendId
+    )) return;
+    let pending = null;
+    try { pending = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null'); } catch {}
+    const preferredFriend = friendsList.find((friend) =>
+      [friend.id, friend.playerId].some((id) => String(id) === String(pending?.id))
+    );
+    if (preferredFriend && pending?.id) {
+      const expiresAtMs = pending.expiresAt ? new Date(pending.expiresAt).getTime() : 0;
+      const remainingSeconds = Math.max(0, Math.floor((expiresAtMs - Date.now()) / 1000));
+      if (pending.isUnlocked && remainingSeconds > 0) {
+        captureUnlockHandoffRef.current = {
+          friendId: String(preferredFriend.id || preferredFriend.playerId),
+          expiresAt: pending.expiresAt,
+          timeRemainingSeconds: remainingSeconds,
+          unlockReason: pending.unlockReason || 'Opponent piece captured',
+        };
+        paymentUnlockConfirmedAtRef.current = Date.now();
+        setChatStatus({
+          isUnlocked: true,
+          timeRemainingSeconds: remainingSeconds,
+          expiresAt: pending.expiresAt,
+          unlockReason: pending.unlockReason || 'Opponent piece captured',
+        });
+      }
+      try { localStorage.removeItem('cc_selected_chat_opponent'); } catch {}
+    }
+    setSelectedFriendId(preferredFriend?.id || preferredFriend?.playerId || friendsList[0].id || friendsList[0].playerId);
+    if (preferredFriend) setMobileView('chat');
   }, [friendsList, selectedFriendId]);
 
   const activeFriend = friendsList.find(
     (f) => f.id === selectedFriendId || f.playerId === selectedFriendId
   ) || null;
+  const activeFriendParam = activeFriend?.id || activeFriend?.playerId;
 
   // Fetch status and messages for active friend
   const syncActiveChat = async () => {
-    if (!activeFriend || !token) return;
-    const friendParam = activeFriend.id || activeFriend.playerId;
+    if (!activeFriendParam || !token || chatSyncInFlightRef.current === activeFriendParam) return;
+    chatSyncInFlightRef.current = activeFriendParam;
+    const statusRequestVersion = chatStatusRequestVersionRef.current;
     try {
       const [statusRes, msgRes] = await Promise.all([
-        api.getChatStatus(token, friendParam).catch(() => null),
-        api.getChatMessages(token, friendParam).catch(() => null),
+        api.getChatStatus(token, activeFriendParam).catch(() => null),
+        api.getChatMessages(token, activeFriendParam).catch(() => null),
       ]);
 
-      if (statusRes && statusRes.success) {
-        setChatStatus({
+      // A poll started before a payment can return afterward with stale locked
+      // status. Let the payment response own the state until that request ends.
+      if (
+        statusRes &&
+        statusRes.success &&
+        !paymentInFlightRef.current &&
+        (statusRes.isUnlocked || Date.now() - paymentUnlockConfirmedAtRef.current > 5000) &&
+        statusRequestVersion === chatStatusRequestVersionRef.current
+      ) {
+        const nextStatus = {
           isUnlocked: Boolean(statusRes.isUnlocked),
           timeRemainingSeconds: statusRes.timeRemainingSeconds || 0,
           expiresAt: statusRes.expiresAt,
           unlockReason: statusRes.unlockReason || '',
+        };
+        setChatStatus((prev) => {
+          // A status poll may have started before the capture unlock completed
+          // and arrive afterward with stale locked data. Keep the confirmed
+          // session until its own expiry; the local countdown handles locking.
+          const activeExpiry = prev.expiresAt ? new Date(prev.expiresAt).getTime() : 0;
+          if (
+            prev.isUnlocked &&
+            activeExpiry > Date.now() &&
+            !nextStatus.isUnlocked
+          ) {
+            return prev;
+          }
+
+          // The local one-second timer is the display source for an active
+          // session. Poll responses are rounded at request time and arrive
+          // every 2.5 seconds, so applying their countdown makes the clock
+          // jump backward and appear to blink.
+          const sameActiveSession = prev.isUnlocked && nextStatus.isUnlocked &&
+            prev.expiresAt && nextStatus.expiresAt &&
+            new Date(prev.expiresAt).getTime() === new Date(nextStatus.expiresAt).getTime();
+          const stableStatus = sameActiveSession
+            ? { ...nextStatus, timeRemainingSeconds: prev.timeRemainingSeconds }
+            : nextStatus;
+
+          return prev.isUnlocked === stableStatus.isUnlocked &&
+            prev.timeRemainingSeconds === stableStatus.timeRemainingSeconds &&
+            prev.expiresAt === stableStatus.expiresAt &&
+            prev.unlockReason === stableStatus.unlockReason
+              ? prev
+              : stableStatus;
         });
       }
 
-      if (msgRes && msgRes.success && Array.isArray(msgRes.messages)) {
-        setChatMessages(msgRes.messages);
+      if (
+        msgRes && msgRes.success && Array.isArray(msgRes.messages) &&
+        statusRequestVersion === chatStatusRequestVersionRef.current
+      ) {
+        setChatMessages((prev) => (
+          prev.length === msgRes.messages.length &&
+          prev.every((message, index) => message.id === msgRes.messages[index]?.id)
+            ? prev
+            : msgRes.messages
+        ));
       }
     } catch (e) {
       console.warn('Chat sync warning:', e);
+    } finally {
+      if (chatSyncInFlightRef.current === activeFriendParam) {
+        chatSyncInFlightRef.current = null;
+      }
     }
   };
 
   // Poll chat status & messages when an active friend is selected
   useEffect(() => {
-    if (!activeFriend) return;
+    chatStatusRequestVersionRef.current += 1;
+    const captureHandoff = captureUnlockHandoffRef.current;
+    const matchingHandoff = captureHandoff &&
+      [activeFriend?.id, activeFriend?.playerId].some((id) => String(id) === captureHandoff.friendId) &&
+      new Date(captureHandoff.expiresAt).getTime() > Date.now();
+    if (matchingHandoff) {
+      setChatStatus({
+        isUnlocked: true,
+        timeRemainingSeconds: Math.max(0, Math.floor((new Date(captureHandoff.expiresAt).getTime() - Date.now()) / 1000)),
+        expiresAt: captureHandoff.expiresAt,
+        unlockReason: captureHandoff.unlockReason,
+      });
+      captureUnlockHandoffRef.current = null;
+    } else {
+      setChatStatus({ isUnlocked: false, timeRemainingSeconds: 0, expiresAt: null, unlockReason: '' });
+    }
+    setChatMessages([]);
+    setInputVal('');
+    setSendError('');
+    if (!activeFriendParam) return;
     syncActiveChat();
 
     if (chatPollRef.current) clearInterval(chatPollRef.current);
@@ -149,7 +257,7 @@ export default function Chat({ onNavigate }) {
     return () => {
       if (chatPollRef.current) clearInterval(chatPollRef.current);
     };
-  }, [activeFriend?.id, activeFriend?.playerId, token]);
+  }, [activeFriendParam, token]);
 
   // Local live countdown timer every second based on expiresAt
   useEffect(() => {
@@ -244,7 +352,7 @@ export default function Chat({ onNavigate }) {
     e?.preventDefault();
     if (!inputVal.trim() || !activeFriend || !token) return;
     if (!chatStatus.isUnlocked) {
-      setSendError('Chat is locked. Unlock in a match or via DEMO payment.');
+      setSendError('Chat is locked. Capture an opponent piece in an online match to unlock it.');
       return;
     }
 
@@ -257,7 +365,11 @@ export default function Chat({ onNavigate }) {
       const friendParam = activeFriend.id || activeFriend.playerId;
       const res = await api.sendChatMessage(token, friendParam, { text: textToSend });
       if (res?.success && res.message) {
-        setChatMessages((prev) => [...prev, res.message]);
+        setChatMessages((prev) => (
+          prev.some((message) => message.id === res.message.id)
+            ? prev
+            : [...prev, res.message]
+        ));
       }
     } catch (err) {
       setSendError(err.message || 'Failed to send message.');
@@ -266,56 +378,7 @@ export default function Chat({ onNavigate }) {
     }
   };
 
-  // 4. DEMO PAYMENT HANDLER (Requirement 9 & 10)
-  const handleStartDemoPayment = () => {
-    setDemoPaymentModal({
-      isOpen: true,
-      step: 'select_method',
-      method: 'upi',
-      upiId: 'grandmaster@okchess',
-      amount: 10,
-      error: '',
-    });
-  };
-
-  const handleConfirmDemoPayment = async () => {
-    setDemoPaymentModal((prev) => ({ ...prev, step: 'processing' }));
-    try {
-      const friendParam = activeFriend.id || activeFriend.playerId;
-      const res = await api.payDemoExtendChat(token, friendParam, {
-        amount: 10,
-        payment_method: demoPaymentModal.method || 'demo_upi',
-      });
-
-      if (res?.success) {
-        setDemoPaymentModal((prev) => ({ ...prev, step: 'success' }));
-        setChatStatus({
-          isUnlocked: true,
-          timeRemainingSeconds: res.timeRemainingSeconds || 300,
-          expiresAt: res.expiresAt,
-          unlockReason: 'Extended via ₹10 DEMO Payment',
-        });
-        try {
-          confetti({ particleCount: 100, spread: 70, origin: { y: 0.5 } });
-        } catch (e) {}
-        setTimeout(() => {
-          setDemoPaymentModal((prev) => ({ ...prev, isOpen: false }));
-        }, 1500);
-      } else {
-        setDemoPaymentModal((prev) => ({
-          ...prev,
-          step: 'failure',
-          error: res?.message || 'Payment simulation failed.',
-        }));
-      }
-    } catch (err) {
-      setDemoPaymentModal((prev) => ({
-        ...prev,
-        step: 'failure',
-        error: err.message || 'Payment request failed.',
-      }));
-    }
-  };
+  const handleStartPremiumExtension = () => setDemoPaymentModal({ isOpen: true });
 
   // 5. CHALLENGE FRIEND TO CHESS MATCH
   const handleChallengeFriend = async () => {
@@ -359,6 +422,9 @@ export default function Chat({ onNavigate }) {
     const idMatch = (f.playerId || '').includes(searchQuery);
     return nameMatch || idMatch;
   });
+  const visibleMessages = chatMessages.filter((message) =>
+    (message.text || message.message || '').toLowerCase().includes(messageSearchQuery.trim().toLowerCase())
+  );
 
   return (
     <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 py-4 md:py-6 h-[calc(100vh-80px)] min-h-[640px] flex flex-col font-sans">
@@ -528,6 +594,7 @@ export default function Chat({ onNavigate }) {
                     onClick={() => {
                       setSelectedFriendId(friendId);
                       setMobileView('chat');
+                      setMessageSearchQuery('');
                     }}
                     className={`p-3 rounded-2xl flex items-center justify-between gap-3 cursor-pointer transition-all ${
                       isSelected
@@ -537,8 +604,10 @@ export default function Chat({ onNavigate }) {
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="relative shrink-0">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-black flex items-center justify-center font-black text-sm shadow-md">
-                          {friend.username ? friend.username[0].toUpperCase() : 'P'}
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-black flex items-center justify-center font-black text-sm shadow-md overflow-hidden">
+                          {(friend.profilePicture || friend.profile_picture || friend.avatar) ? (
+                            <img src={friend.profilePicture || friend.profile_picture || friend.avatar} alt="" className="w-full h-full object-cover" />
+                          ) : (friend.username || friend.name || 'P')[0].toUpperCase()}
                         </div>
                         <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#070b14]" />
                       </div>
@@ -599,8 +668,10 @@ export default function Chat({ onNavigate }) {
                     <ArrowLeft className="w-4 h-4" />
                   </button>
 
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-black flex items-center justify-center font-black text-sm shrink-0 shadow-md">
-                    {activeFriend.username ? activeFriend.username[0].toUpperCase() : 'P'}
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-black flex items-center justify-center font-black text-sm shrink-0 shadow-md overflow-hidden">
+                    {(activeFriend.profilePicture || activeFriend.profile_picture || activeFriend.avatar) ? (
+                      <img src={activeFriend.profilePicture || activeFriend.profile_picture || activeFriend.avatar} alt="" className="w-full h-full object-cover" />
+                    ) : (activeFriend.username || activeFriend.name || 'P')[0].toUpperCase()}
                   </div>
 
                   <div className="min-w-0">
@@ -624,7 +695,7 @@ export default function Chat({ onNavigate }) {
                     <div className="flex items-center gap-2">
                       {/* Live 5-minute countdown badge */}
                       <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 shadow-inner">
-                        <Clock className="w-3.5 h-3.5 text-amber-400 animate-spin-slow" />
+                        <Clock className="w-3.5 h-3.5 text-amber-400" />
                         <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">
                           Time Left:
                         </span>
@@ -633,15 +704,6 @@ export default function Chat({ onNavigate }) {
                         </span>
                       </div>
 
-                      {/* Add +5m Button */}
-                      <button
-                        onClick={handleStartDemoPayment}
-                        className="px-2.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-                        title="Extend 5 minutes for ₹10 (DEMO Payment)"
-                      >
-                        <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
-                        <span className="hidden sm:inline">+5m (₹10 DEMO)</span>
-                      </button>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
@@ -650,14 +712,6 @@ export default function Chat({ onNavigate }) {
                         <span>Chat Locked</span>
                       </span>
 
-                      <button
-                        onClick={handleStartDemoPayment}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 shadow-md shadow-emerald-500/20"
-                        title="Unlock Chat for ₹10 (DEMO Payment)"
-                      >
-                        <Zap className="w-3.5 h-3.5" />
-                        <span>Unlock for ₹10</span>
-                      </button>
                     </div>
                   )}
 
@@ -683,12 +737,6 @@ export default function Chat({ onNavigate }) {
                         ⚡ <strong>Chat Channel Unlocked!</strong> {chatStatus.unlockReason || 'Piece captured within first 5 moves.'} Messaging expires in {formatTime(chatStatus.timeRemainingSeconds)}.
                       </span>
                     </div>
-                    <button
-                      onClick={handleStartDemoPayment}
-                      className="text-[11px] underline font-bold hover:text-white shrink-0"
-                    >
-                      Extend +5m
-                    </button>
                   </div>
                 ) : (
                   <div className="p-4 rounded-2xl bg-[#0e172a] border border-slate-800 text-center space-y-2.5 my-4">
@@ -697,7 +745,7 @@ export default function Chat({ onNavigate }) {
                     </div>
                     <h4 className="text-sm font-bold text-white">Chat Session Locked</h4>
                     <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-                      Messaging is locked. Automatically unlock by capturing at least one opponent piece within the first 5 moves in a chess match, or extend for +5 minutes for ₹10.
+                      Messaging is locked. Capture an opponent piece in an online match to unlock this chat session.
                     </p>
                     <div className="flex items-center justify-center gap-3 pt-1">
                       <button
@@ -708,19 +756,32 @@ export default function Chat({ onNavigate }) {
                         <span>Play Match to Unlock</span>
                       </button>
                       <button
-                        onClick={handleStartDemoPayment}
-                        className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer shadow-md shadow-emerald-500/20"
+                        onClick={handleStartPremiumExtension}
+                        className="px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-amber-500/40"
                       >
-                        <Zap className="w-3.5 h-3.5" />
-                        <span>Pay ₹10 (DEMO Test)</span>
+                        <CreditCard className="w-3.5 h-3.5" />
+                        <span>Premium · ₹5 / 5 min</span>
                       </button>
                     </div>
                   </div>
                 )}
 
+                <div className="sticky top-0 z-10 -mx-1 px-1 py-2 bg-[#080d19]">
+                  <div className="relative max-w-xl mx-auto">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <input
+                      type="search"
+                      value={messageSearchQuery}
+                      onChange={(event) => setMessageSearchQuery(event.target.value)}
+                      placeholder="Search messages in this chat..."
+                      className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-800 focus:border-amber-500/60 rounded-xl text-xs text-slate-200 placeholder-slate-500 outline-none"
+                    />
+                  </div>
+                </div>
+
                 {/* Message History Render */}
-                {chatMessages.length > 0 ? (
-                  chatMessages.map((msg) => {
+                {visibleMessages.length > 0 ? (
+                  visibleMessages.map((msg) => {
                     const isMe = msg.senderId === user?.id;
 
                     return (
@@ -749,7 +810,7 @@ export default function Chat({ onNavigate }) {
                   })
                 ) : (
                   <p className="text-center text-xs text-slate-500 py-8 italic">
-                    No messages exchanged yet with {activeFriend.username || activeFriend.name}.
+                    {messageSearchQuery ? 'No messages match your search.' : `No messages exchanged yet with ${activeFriend.username || activeFriend.name}.`}
                   </p>
                 )}
                 <div ref={messagesEndRef} />
@@ -788,7 +849,7 @@ export default function Chat({ onNavigate }) {
                       placeholder={
                         chatStatus.isUnlocked
                           ? 'Type your message...'
-                          : '🔒 Chat is locked. Unlock in a match or via ₹10 DEMO payment.'
+                          : '🔒 Chat is locked. Capture a piece in an online match to unlock.'
                       }
                       className="w-full bg-slate-900 border border-slate-700 focus:border-amber-400 disabled:opacity-50 text-xs sm:text-sm text-white placeholder-slate-500 px-4 py-2.5 rounded-2xl outline-none transition-colors"
                     />
@@ -822,103 +883,33 @@ export default function Chat({ onNavigate }) {
         </div>
       </div>
 
-      {/* ================= DEMO PAYMENT MODAL (Requirement 9 & 10) ================= */}
+      {/* ================= PREMIUM EXTENSION ================= */}
       {demoPaymentModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-          <div className="relative w-full max-w-md rounded-3xl bg-[#0c1424] border-2 border-amber-400/80 p-6 shadow-2xl space-y-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="relative w-full max-w-md rounded-3xl bg-[#0c1424] border-2 border-amber-400/70 p-6 shadow-2xl space-y-5">
             <button
-              onClick={() => setDemoPaymentModal((prev) => ({ ...prev, isOpen: false }))}
+              onClick={() => setDemoPaymentModal({ isOpen: false })}
               className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 rounded-xl"
+              aria-label="Close premium information"
             >
               <X className="w-5 h-5" />
             </button>
-
-            {/* Modal Header */}
-            <div className="text-center space-y-1">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/40 text-emerald-400 flex items-center justify-center mx-auto shadow-md">
+            <div className="text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/40 text-amber-300 flex items-center justify-center mx-auto">
                 <CreditCard className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-black text-white">
-                Extend Chat Timer (+5 Minutes)
-              </h3>
-              {/* CLEARLY LABELLED DEMO PAYMENT BADGE (Requirement 9 & 10) */}
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold">
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                <span>DEMO TEST MODE · ₹10 (Simulated)</span>
-              </div>
+              <h3 className="text-lg font-black text-white">Premium chat · ₹5 / 5 minutes</h3>
+              <p className="text-sm text-slate-300 leading-relaxed">
+                A verified payment provider is not configured for this project yet. Chat will stay locked until a real payment is confirmed; no charge or simulated unlock will occur.
+              </p>
+              <p className="text-xs text-slate-500">Premium extension is available for {activeFriend?.username || activeFriend?.name || 'this friend'} once payment integration is connected.</p>
             </div>
-
-            {/* Step: Select Method */}
-            {demoPaymentModal.step === 'select_method' && (
-              <div className="space-y-4">
-                <p className="text-xs text-slate-300 text-center leading-relaxed">
-                  This is a simulated demo payment. No real money will be charged. Successful verification extends your live chat by <strong className="text-amber-300">+5:00 minutes</strong>.
-                </p>
-
-                {/* Price Display */}
-                <div className="p-3.5 rounded-2xl bg-[#070b14] border border-slate-800 flex items-center justify-between">
-                  <span className="text-xs text-slate-400 font-semibold">Total Amount:</span>
-                  <span className="text-lg font-black text-emerald-400 font-mono">₹10.00</span>
-                </div>
-
-                {/* Simulated Payment Methods */}
-                <div className="space-y-2">
-                  <label className="text-[11px] font-bold text-slate-400 block uppercase">
-                    Select Simulated Method:
-                  </label>
-                  {['UPI (GPay / PhonePe / Paytm)', 'Simulated Card (Visa / MC)', 'Net Banking'].map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      className="w-full p-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs font-bold text-slate-200 flex items-center justify-between hover:border-amber-400 transition-colors"
-                    >
-                      <span>{m}</span>
-                      <span className="text-emerald-400 text-[10px] uppercase font-bold">Demo OK</span>
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  onClick={handleConfirmDemoPayment}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white font-black text-sm uppercase tracking-wider transition-all cursor-pointer shadow-lg shadow-emerald-500/25"
-                >
-                  Pay ₹10 (Simulate Success)
-                </button>
-              </div>
-            )}
-
-            {/* Step: Processing */}
-            {demoPaymentModal.step === 'processing' && (
-              <div className="py-8 text-center space-y-3">
-                <div className="w-10 h-10 rounded-full border-3 border-emerald-400 border-t-transparent animate-spin mx-auto" />
-                <p className="text-xs text-slate-300 font-bold">Verifying simulated DEMO transaction...</p>
-              </div>
-            )}
-
-            {/* Step: Success */}
-            {demoPaymentModal.step === 'success' && (
-              <div className="py-6 text-center space-y-2">
-                <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto animate-bounce" />
-                <h4 className="text-base font-extrabold text-white">Payment Verified!</h4>
-                <p className="text-xs text-slate-300">
-                  Chat session extended by +5 minutes. Messaging is now active!
-                </p>
-              </div>
-            )}
-
-            {/* Step: Failure */}
-            {demoPaymentModal.step === 'failure' && (
-              <div className="py-4 text-center space-y-3">
-                <AlertCircle className="w-10 h-10 text-rose-400 mx-auto" />
-                <p className="text-xs text-rose-300 font-bold">{demoPaymentModal.error || 'Payment failed'}</p>
-                <button
-                  onClick={() => setDemoPaymentModal((prev) => ({ ...prev, step: 'select_method' }))}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-white text-xs font-bold"
-                >
-                  Retry Payment
-                </button>
-              </div>
-            )}
+            <button
+              onClick={() => setDemoPaymentModal({ isOpen: false })}
+              className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}

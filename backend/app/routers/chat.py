@@ -144,7 +144,7 @@ def unlock_chat_session(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Unlocks chat between two players for 5 minutes after a legal piece capture within 5 moves."""
+    """Unlocks chat between two players for 5 minutes after a legal piece capture."""
     target_friend = resolve_friend_user(db, friend_id)
 
     if not chat_service.is_friend(db, current_user.id, target_friend.id):

@@ -12,6 +12,16 @@ const FACEBOOK_APP_ID = '1608757584075667';
 
 const DEFAULT_CAREER_GAMES = [];
 
+const sameRecords = (current, next) => (
+  current.length === next.length &&
+  current.every((record, index) => {
+    const nextRecord = next[index];
+    const keys = Object.keys(record);
+    return keys.length === Object.keys(nextRecord).length &&
+      keys.every((key) => record[key] === nextRecord[key]);
+  })
+);
+
 export const DEFAULT_ACTIVE_USER = {
   id: 'usr_grandmaster',
   username: 'GrandmasterMaster',
@@ -91,10 +101,14 @@ export function AuthProvider({ children }) {
         api.getFriendsList(curToken).catch(() => ({ count: 0, friends: [] }))
       ]);
       if (notifRes?.notifications) {
-        setFriendNotifications(notifRes.notifications);
+        setFriendNotifications((prev) => (
+          sameRecords(prev, notifRes.notifications) ? prev : notifRes.notifications
+        ));
       }
       if (friendsRes?.friends) {
-        setFriendsList(friendsRes.friends);
+        setFriendsList((prev) => (
+          sameRecords(prev, friendsRes.friends) ? prev : friendsRes.friends
+        ));
       }
     } catch (e) {
       console.warn('Friends sync warning:', e.message);
