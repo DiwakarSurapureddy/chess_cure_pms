@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import ChessBoard, { playChessSound } from '../components/chess/ChessBoard';
+import Chat from './Chat';
+import { useAuth } from '../context/AuthContext';
+import { useSecretChat } from '../context/SecretChatContext';
+import api from '../services/api';
 import { 
   Users, 
   Copy, 
@@ -34,6 +38,10 @@ const createInitialBoard = () => {
 };
 
 export default function PlayWithFriends({ onNavigate, userProfile }) {
+  const { token } = useAuth ? (useAuth() || {}) : {};
+  const { unlockSecretChat } = useSecretChat ? (useSecretChat() || {}) : {};
+  const [showInPlaceChat, setShowInPlaceChat] = useState(false);
+
   // Generate a player ID if not exists
   const myPlayerId = userProfile?.playerId || 'CC-784291';
   const username = userProfile?.username || userProfile?.name || 'Grandmaster';
@@ -224,6 +232,35 @@ export default function PlayWithFriends({ onNavigate, userProfile }) {
     setMoveCount((prev) => prev + 1);
 
     playChessSound(targetPiece ? 'capture' : 'move');
+
+    // In-place chat unlock when a piece is captured in the opening five full moves (ten plies)
+    if (targetPiece && moveCount < 10 && activeFriend) {
+      const reason = `Captured ${targetPiece.type.toUpperCase()} within first 5 moves`;
+      const friendId = activeFriend.id || activeFriend.playerId;
+      if (token && friendId) {
+        api.unlockChat(token, friendId, { reason }).catch(() => {});
+      }
+      try {
+        localStorage.setItem('cc_selected_chat_opponent', JSON.stringify({
+          id: friendId,
+          playerId: friendId,
+          name: activeFriend.name || 'Friend',
+          username: activeFriend.name || 'Friend',
+          isUnlocked: true,
+          expiresAt: new Date(Date.now() + 300 * 1000).toISOString(),
+          timeRemainingSeconds: 300,
+          unlockReason: reason,
+        }));
+      } catch {}
+      if (unlockSecretChat) {
+        unlockSecretChat({
+          friendId,
+          reason,
+          durationSeconds: 300,
+        });
+      }
+      setShowInPlaceChat(true);
+    }
 
     if (targetPiece && targetPiece.type === 'k') {
       setGameStatus(`${turn === 'w' ? 'White' : 'Black'} Wins by Checkmate!`);
@@ -456,20 +493,43 @@ export default function PlayWithFriends({ onNavigate, userProfile }) {
               </span>
             </div>
 
-            {/* Interactive 2-Player Chess Board */}
-            <div className="relative">
-              <ChessBoard
-                boardState={board}
-                playerColor={turn}
-                selectedSquare={selectedSquare}
-                onSelectSquare={handleSelectSquare}
-                legalMoves={legalMoves}
-                lastMove={lastMove}
-                onMove={handleMove}
-                isLocked={gameStatus.includes('Wins') || gameStatus === 'Resigned'}
-                successHighlight={gameStatus.includes('Wins') && lastMove ? lastMove.to : null}
-              />
-            </div>
+            {/* Main Board Arena: Shows in-place friend chat or interactive chessboard */}
+            {showInPlaceChat && activeFriend ? (
+              <div className="w-full max-w-xl rounded-3xl overflow-hidden border-2 border-amber-500/40 bg-[#090e18] shadow-2xl animate-in fade-in">
+                <div className="px-4 py-2 bg-[#0b1424] border-b border-slate-800 flex items-center justify-between">
+                  <button
+                    onClick={() => setShowInPlaceChat(false)}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Return to Chessboard</span>
+                  </button>
+                  <span className="text-xs text-amber-300 font-bold">
+                    Chat with {activeFriend?.name || 'Friend'} (In Place of Board)
+                  </span>
+                </div>
+                <Chat
+                  embedded={true}
+                  inPlaceFriend={activeFriend}
+                  onCloseInPlace={() => setShowInPlaceChat(false)}
+                  onNavigate={onNavigate}
+                />
+              </div>
+            ) : (
+              <div className="relative">
+                <ChessBoard
+                  boardState={board}
+                  playerColor={turn}
+                  selectedSquare={selectedSquare}
+                  onSelectSquare={handleSelectSquare}
+                  legalMoves={legalMoves}
+                  lastMove={lastMove}
+                  onMove={handleMove}
+                  isLocked={gameStatus.includes('Wins') || gameStatus === 'Resigned'}
+                  successHighlight={gameStatus.includes('Wins') && lastMove ? lastMove.to : null}
+                />
+              </div>
+            )}
 
             {/* You (White) Card */}
             <div className="w-full max-w-lg p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center justify-between">

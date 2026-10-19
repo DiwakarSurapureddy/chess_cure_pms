@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import ChessBoard from '../components/chess/ChessBoard';
+import Chat from './Chat';
 import { useAuth } from '../context/AuthContext';
-import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X, Crown } from 'lucide-react';
+import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X, Crown, ArrowLeft } from 'lucide-react';
 
 export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   const { user, recordGameResult, activeOnlineMatch, setActiveOnlineMatch, cancelActiveOnlineMatch } = useAuth();
@@ -11,6 +12,8 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   const [friendName, setFriendName] = useState(activeOnlineMatch?.opponentName || 'Friend');
   const [secretUnlocked, setSecretUnlocked] = useState(false);
   const [cancelPrompt, setCancelPrompt] = useState(null); // { targetMode, title, message }
+  const [inPlaceChatFriend, setInPlaceChatFriend] = useState(null);
+  const [activeBoardView, setActiveBoardView] = useState('board'); // 'board' | 'chat'
 
   useEffect(() => {
     if (activeOnlineMatch) {
@@ -71,6 +74,11 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
 
   const handleSecretMove = (move) => {
     setSecretUnlocked(true);
+  };
+
+  const handleChatUnlockInPlace = (targetFriend) => {
+    setInPlaceChatFriend(targetFriend);
+    setActiveBoardView('chat');
   };
 
   const handleGameOver = (resultData) => {
@@ -243,8 +251,23 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
           </button>
         )}
 
+        {/* In-Place Chat Toggle Button (when chat has been unlocked for a friend) */}
+        {inPlaceChatFriend && (
+          <button
+            onClick={() => setActiveBoardView((prev) => (prev === 'chat' ? 'board' : 'chat'))}
+            className={`py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md cursor-pointer ${
+              activeBoardView === 'chat'
+                ? 'bg-amber-500 text-black border border-amber-400'
+                : 'bg-emerald-500/20 border border-emerald-400 text-emerald-300 animate-pulse'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>{activeBoardView === 'chat' ? 'View Chessboard' : `Chat with ${inPlaceChatFriend.name || 'Friend'}`}</span>
+          </button>
+        )}
+
         {/* Secret Chat Indicator Badge */}
-        {secretUnlocked && (
+        {secretUnlocked && !inPlaceChatFriend && (
           <button
             onClick={() => onNavigate && onNavigate('chat')}
             className="py-1.5 px-3 rounded-xl bg-amber-500/20 border border-amber-400 text-amber-300 text-xs font-bold flex items-center gap-1.5 animate-bounce shadow-lg cursor-pointer"
@@ -255,20 +278,54 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
         )}
       </div>
 
-      {/* Main Playable Chessboard with selected side and mode */}
-      <ChessBoard
-        key={`${mode}-${selectedSide}-${friendName}-${activeOnlineMatch?.gameId || 'offline'}`}
-        gameMode={mode}
-        aiDifficulty={aiLevel}
-        initialPlayerColor={selectedSide}
-        player1Name={activeOnlineMatch ? (activeOnlineMatch.playerColor === 'w' ? user?.username : activeOnlineMatch.opponentName) : (user?.username || user?.name || 'Player 1')}
-        player2Name={activeOnlineMatch ? (activeOnlineMatch.playerColor === 'w' ? activeOnlineMatch.opponentName : user?.username) : (friendName || 'Friend (Player 2)')}
-        onlineGameId={activeOnlineMatch?.gameId}
-        onSecretMoveDetected={handleSecretMove}
-        onGameOver={handleGameOver}
-        onNavigate={onNavigate}
-        onOnlineMatchCancelled={handleOnlineMatchCancelled}
-      />
+      {/* Main Content Area: Renders either the ChessBoard or in-place WhatsApp Friend Chat */}
+      {activeBoardView === 'chat' && inPlaceChatFriend ? (
+        <div className="w-full rounded-3xl overflow-hidden border-2 border-amber-500/40 shadow-2xl bg-[#090e18] animate-in fade-in">
+          <div className="px-4 py-2.5 bg-[#0b1424] border-b border-slate-800 flex items-center justify-between gap-3">
+            <button
+              onClick={() => setActiveBoardView('board')}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
+              <span>Return to Chessboard</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              <span className="text-xs font-bold text-white">
+                Chat with {inPlaceChatFriend.name || inPlaceChatFriend.username} (In Place of Board)
+              </span>
+            </div>
+            <button
+              onClick={() => onNavigate && onNavigate('chat')}
+              className="text-xs text-amber-400/90 hover:text-amber-300 font-bold hidden sm:flex items-center gap-1 transition-colors"
+            >
+              <span>Full Page</span>
+              <Sparkles className="w-3 h-3 text-amber-400" />
+            </button>
+          </div>
+          <Chat
+            embedded={true}
+            inPlaceFriend={inPlaceChatFriend}
+            onCloseInPlace={() => setActiveBoardView('board')}
+            onNavigate={onNavigate}
+          />
+        </div>
+      ) : (
+        <ChessBoard
+          key={`${mode}-${selectedSide}-${friendName}-${activeOnlineMatch?.gameId || 'offline'}`}
+          gameMode={mode}
+          aiDifficulty={aiLevel}
+          initialPlayerColor={selectedSide}
+          player1Name={activeOnlineMatch ? (activeOnlineMatch.playerColor === 'w' ? user?.username : activeOnlineMatch.opponentName) : (user?.username || user?.name || 'Player 1')}
+          player2Name={activeOnlineMatch ? (activeOnlineMatch.playerColor === 'w' ? activeOnlineMatch.opponentName : user?.username) : (friendName || 'Friend (Player 2)')}
+          onlineGameId={activeOnlineMatch?.gameId}
+          onSecretMoveDetected={handleSecretMove}
+          onGameOver={handleGameOver}
+          onNavigate={onNavigate}
+          onOnlineMatchCancelled={handleOnlineMatchCancelled}
+          onChatUnlockInPlace={handleChatUnlockInPlace}
+        />
+      )}
 
       {/* Cancel Match Confirmation Modal on Board Change */}
       {cancelPrompt && (

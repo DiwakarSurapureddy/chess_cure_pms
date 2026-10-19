@@ -71,8 +71,9 @@ export default function ChessBoard({
   onGameOver,
   onNavigate,
   onOnlineMatchCancelled,
+  onChatUnlockInPlace,
 }) {
-  const { user, preferences, token, activeOnlineMatch } = useAuth();
+  const { user, preferences, token, activeOnlineMatch, friendsList = [] } = useAuth();
   const { unlockSecretChat } = useSecretChat();
   const showInstructions = preferences?.showInstructions ?? true;
 
@@ -100,38 +101,127 @@ export default function ChessBoard({
   const socketRef = useRef(null);
   const chatUnlockHandledRef = useRef(new Set());
 
-  const requestFriendChatUnlock = async (friendId, friendName, reason = 'Opponent piece captured within first 5 moves') => {
-    if (!friendId) return;
-    const unlockKey = `${onlineGameId || 'online'}:${friendId}`;
+  // Handle piece capture within 5 moves (move count <= 10)
+  const unlockChatAfterCapture = async (move) => {
+    if (!move?.captured) return;
+    const moveCount = chess.history().length;
+    // Must be captured within the first 5 moves (10 half-moves / plies)
+    if (moveCount > 10) return;
+
+    const reason = `Captured opponent piece (${move.captured.toUpperCase()}) on move ${Math.ceil(moveCount / 2)}`;
+
+    // 1. VS COMPUTER: open the full chat page
+    if (gameMode === 'computer') {
+      const unlockKey = `computer_capture_${chess.history().length}`;
+      if (chatUnlockHandledRef.current.has(unlockKey)) return;
+      chatUnlockHandledRef.current.add(unlockKey);
+
+      unlockSecretChat({
+        reason,
+        durationSeconds: 300,
+      });
+
+      if (friendsList && friendsList.length > 0) {
+        try {
+          localStorage.setItem('cc_selected_chat_opponent', JSON.stringify({
+            id: friendsList[0].id || friendsList[0].playerId,
+            playerId: friendsList[0].playerId,
+            name: friendsList[0].username || friendsList[0].name,
+            username: friendsList[0].username || friendsList[0].name,
+            isUnlocked: true,
+            expiresAt: new Date(Date.now() + 300 * 1000).toISOString(),
+            timeRemainingSeconds: 300,
+            unlockReason: reason,
+          }));
+        } catch (e) {}
+      }
+
+      if (onSecretMoveDetected) {
+        onSecretMoveDetected({ type: 'capture_within_5', reason });
+      }
+
+      if (onNavigate) {
+        onNavigate('chat');
+      }
+      return;
+    }
+
+    // 2. VS FRIEND (two-player) OR ONLINE: chat of that specific friend visible in place of chessboard
+    let targetFriend = null;
+    if (gameMode === 'online') {
+      const oppId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId;
+      const oppName = activeOnlineMatch?.opponentName || player2Name || 'Online Friend';
+      targetFriend = {
+        id: oppId,
+        playerId: oppId,
+        name: oppName,
+        username: oppName,
+        mode: 'online',
+      };
+    } else {
+      // two-player mode
+      const matched = friendsList.find((f) => 
+        f.username === player2Name || f.name === player2Name || f.playerId === player2Name || f.id === player2Name
+      );
+      if (matched) {
+        targetFriend = {
+          id: matched.id || matched.playerId,
+          playerId: matched.playerId || matched.id,
+          name: matched.username || matched.name,
+          username: matched.username || matched.name,
+          mode: 'two-player',
+        };
+      } else {
+        targetFriend = {
+          id: player2Name || 'friend_p2',
+          playerId: player2Name || 'friend_p2',
+          name: player2Name || 'Friend (Player 2)',
+          username: player2Name || 'Friend (Player 2)',
+          mode: 'two-player',
+        };
+      }
+    }
+
+    const friendParam = targetFriend.id || targetFriend.playerId;
+    const unlockKey = `${onlineGameId || gameMode}:${friendParam}`;
     if (chatUnlockHandledRef.current.has(unlockKey)) return;
     chatUnlockHandledRef.current.add(unlockKey);
-    try {
-      const result = await api.unlockChat(token, friendId, {
-        game_id: onlineGameId,
+
+    const expiresAt = new Date(Date.now() + 300 * 1000).toISOString();
+
+    if (token && friendParam && friendParam !== 'friend_p2') {
+      api.unlockChat(token, friendParam, {
+        game_id: onlineGameId || null,
         reason,
-      });
-      if (!result?.success) throw new Error('Chat unlock was not confirmed.');
+      }).catch((err) => console.warn('Unlock chat error:', err));
+    }
+
+    try {
       localStorage.setItem('cc_selected_chat_opponent', JSON.stringify({
-        id: friendId,
-        name: friendName,
-        mode: 'online',
+        ...targetFriend,
         isUnlocked: true,
-        expiresAt: result.expiresAt,
-        timeRemainingSeconds: result.timeRemainingSeconds,
+        expiresAt,
+        timeRemainingSeconds: 300,
         unlockReason: reason,
       }));
-      onNavigate?.('chat');
-    } catch (error) {
-      chatUnlockHandledRef.current.delete(unlockKey);
-      console.warn('Could not unlock chat after capture:', error);
-    }
-  };
+    } catch (e) {}
 
-  const unlockChatAfterCapture = (move) => {
-    if (gameMode !== 'online' || !move?.captured) return;
-    const opponent = getOpponentInfo();
-    const friendId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId;
-    requestFriendChatUnlock(friendId, opponent.name);
+    unlockSecretChat({
+      friendId: friendParam,
+      reason,
+      durationSeconds: 300,
+    });
+
+    if (onSecretMoveDetected) {
+      onSecretMoveDetected({ type: 'capture_within_5', reason });
+    }
+
+    // Display that friend's chat in place of the chessboard
+    if (onChatUnlockInPlace) {
+      onChatUnlockInPlace(targetFriend);
+    } else if (onNavigate) {
+      onNavigate('chat');
+    }
   };
 
   // Winner Game Over Modal State
@@ -336,7 +426,41 @@ export default function ChessBoard({
           if (data.game?.chat_unlocked) {
             const opp = getOpponentInfo();
             const reason = data.game.chat_unlock_reason || 'Piece captured within first 5 moves';
-            requestFriendChatUnlock(activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId, opp.name, reason);
+            const oppId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId || opp.id;
+            const targetFriend = {
+              id: oppId,
+              playerId: oppId,
+              name: opp.name,
+              username: opp.name,
+              mode: 'online',
+            };
+            const unlockKey = `${onlineGameId || 'online'}:${oppId}`;
+            if (!chatUnlockHandledRef.current.has(unlockKey)) {
+              chatUnlockHandledRef.current.add(unlockKey);
+              if (token && oppId) {
+                api.unlockChat(token, oppId, { reason, game_id: onlineGameId }).catch(() => {});
+              }
+              const expiresAt = new Date(Date.now() + 300 * 1000).toISOString();
+              try {
+                localStorage.setItem('cc_selected_chat_opponent', JSON.stringify({
+                  ...targetFriend,
+                  isUnlocked: true,
+                  expiresAt,
+                  timeRemainingSeconds: 300,
+                  unlockReason: reason,
+                }));
+              } catch (e) {}
+              unlockSecretChat({
+                friendId: oppId,
+                reason,
+                durationSeconds: 300,
+              });
+              if (onChatUnlockInPlace) {
+                onChatUnlockInPlace(targetFriend);
+              } else if (onNavigate) {
+                onNavigate('chat');
+              }
+            }
           }
           if (data.game?.moves && Array.isArray(data.game.moves) && data.game.moves.length > 0) {
             chess.reset();
@@ -358,7 +482,41 @@ export default function ChessBoard({
           if (data.game?.chat_unlocked) {
             const opp = getOpponentInfo();
             const reason = data.game.chat_unlock_reason || 'Piece captured within first 5 moves';
-            requestFriendChatUnlock(activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId, opp.name, reason);
+            const oppId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId || opp.id;
+            const targetFriend = {
+              id: oppId,
+              playerId: oppId,
+              name: opp.name,
+              username: opp.name,
+              mode: 'online',
+            };
+            const unlockKey = `${onlineGameId || 'online'}:${oppId}`;
+            if (!chatUnlockHandledRef.current.has(unlockKey)) {
+              chatUnlockHandledRef.current.add(unlockKey);
+              if (token && oppId) {
+                api.unlockChat(token, oppId, { reason, game_id: onlineGameId }).catch(() => {});
+              }
+              const expiresAt = new Date(Date.now() + 300 * 1000).toISOString();
+              try {
+                localStorage.setItem('cc_selected_chat_opponent', JSON.stringify({
+                  ...targetFriend,
+                  isUnlocked: true,
+                  expiresAt,
+                  timeRemainingSeconds: 300,
+                  unlockReason: reason,
+                }));
+              } catch (e) {}
+              unlockSecretChat({
+                friendId: oppId,
+                reason,
+                durationSeconds: 300,
+              });
+              if (onChatUnlockInPlace) {
+                onChatUnlockInPlace(targetFriend);
+              } else if (onNavigate) {
+                onNavigate('chat');
+              }
+            }
           }
           if (data.game?.moves && Array.isArray(data.game.moves)) {
             const currentHist = chess.history();
