@@ -97,7 +97,7 @@ def start_game(
 
 
 @router.post("/{game_id}/move")
-def make_move(
+async def make_move(
     game_id: str,
     request: MoveRequest,
     db: Session = Depends(get_db),
@@ -114,6 +114,17 @@ def make_move(
             status_code=400,
             detail=message,
         )
+
+    # Broadcast to live connected clients so opponents see move instantly
+    await connection_manager.send_to_game(
+        game_id,
+        {
+            "type": "move",
+            "success": True,
+            "message": message,
+            "game": game.get_state(),
+        },
+    )
 
     return {
         "success": True,
@@ -270,6 +281,20 @@ async def websocket_endpoint(
             game_id,
             db,
         )
+
+        if game is None:
+            # Check if there is an active or pending challenge for this game_id
+            challenge = db.query(MatchChallenge).filter(MatchChallenge.game_id == game_id).first()
+            if challenge:
+                sender_name = challenge.sender.username if challenge.sender else "player1"
+                receiver_name = challenge.receiver.username if challenge.receiver else "player2"
+                game = game_service.create_game(player1=sender_name, player2=receiver_name, db=db)
+                game.game_id = game_id
+                game_service.games[game_id] = game
+            elif game_id.startswith("quick_") or "online" in game_id:
+                game = game_service.create_game(player1="Player 1", player2="Player 2", db=db)
+                game.game_id = game_id
+                game_service.games[game_id] = game
 
         if game is None:
             await websocket.close(code=1008)
@@ -471,6 +496,9 @@ async def websocket_endpoint(
                         "message": f"Player ({'White' if resigning_player == 'w' else 'Black'}) resigned the match.",
                     }
                 )
+
+            elif action == "ping":
+                await websocket.send_json({"type": "pong"})
 
             else:
                 await websocket.send_json(

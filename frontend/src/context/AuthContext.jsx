@@ -120,8 +120,15 @@ export function AuthProvider({ children }) {
       fetchFriendsAndNotifications(token);
       const interval = setInterval(() => {
         fetchFriendsAndNotifications(token);
-      }, 7000);
-      return () => clearInterval(interval);
+      }, 2000);
+
+      const handleFocus = () => fetchFriendsAndNotifications(token);
+      window.addEventListener('focus', handleFocus);
+
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('focus', handleFocus);
+      };
     }
   }, [token]);
 
@@ -578,11 +585,13 @@ export function AuthProvider({ children }) {
 
       const isWin = gameData.result?.toLowerCase() === 'won';
       const isLoss = gameData.result?.toLowerCase() === 'lost';
+      const delta = isWin ? 25 : isLoss ? -25 : 0;
       const updatedGuestUser = {
         ...user,
         wins: (user?.wins || 0) + (isWin ? 1 : 0),
         losses: (user?.losses || 0) + (isLoss ? 1 : 0),
         draws: (user?.draws || 0) + (!isWin && !isLoss ? 1 : 0),
+        rating: Math.max(800, (user?.rating || 1200) + delta),
       };
       setUser(updatedGuestUser);
       localStorage.setItem('chess_cure_guest_user', JSON.stringify(updatedGuestUser));
@@ -592,14 +601,31 @@ export function AuthProvider({ children }) {
     // 2. Authenticated user: save in backend DB & update real-time counts
     const currentToken = token || localStorage.getItem(TOKEN_KEY);
     if (currentToken) {
+      const isWin = gameData.result?.toLowerCase() === 'won';
+      const isLoss = gameData.result?.toLowerCase() === 'lost';
+      const delta = isWin ? 25 : isLoss ? -25 : 0;
+
+      // Optimistically update rating & win/loss counts immediately for seamless real-time response
+      setUser((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          wins: (prev.wins || 0) + (isWin ? 1 : 0),
+          losses: (prev.losses || 0) + (isLoss ? 1 : 0),
+          draws: (prev.draws || 0) + (!isWin && !isLoss ? 1 : 0),
+          rating: Math.max(800, (prev.rating || 1200) + delta),
+        };
+      });
+
       try {
+        const ratingChangeStr = gameData.ratingChange || (isWin ? '+25' : isLoss ? '-25' : '+0');
         const res = await api.recordGame(currentToken, {
           opponent: gameData.opponent,
           mode: gameData.mode,
           result: gameData.result,
           method: gameData.method,
           moves: gameData.moves,
-          ratingChange: gameData.ratingChange,
+          ratingChange: ratingChangeStr,
         });
 
         if (res) {

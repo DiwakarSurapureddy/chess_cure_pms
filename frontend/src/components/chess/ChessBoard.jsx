@@ -1,24 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Chess } from 'chess.js';
 import ChessPiece from './ChessPiece';
-import { 
-  RotateCcw, 
-  RotateCw, 
-  Lightbulb, 
-  Undo2, 
-  Swords, 
-  User, 
-  Bot, 
-  Volume2, 
-  VolumeX, 
-  Crown, 
+import {
+  RotateCcw,
+  RotateCw,
+  Lightbulb,
+  Undo2,
+  Swords,
+  User,
+  Bot,
+  Volume2,
+  VolumeX,
+  Crown,
   ChevronRight,
   Shield,
   HelpCircle,
   X,
   Trophy,
   Award,
-  Flag
+  Flag,
+  TrendingUp,
+  TrendingDown,
+  Quote,
+  Frown
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../../context/AuthContext';
@@ -28,6 +32,20 @@ import { getSmartEngineMove } from '../../utils/chessEngine';
 import api from '../../services/api';
 
 export { playChessSound };
+
+const CHESS_LOSER_QUOTES = [
+  { text: "You may learn much more from a game you lose than from a game you win.", author: "José Raúl Capablanca" },
+  { text: "Chess is life in miniature. Every defeat is a lesson to master.", author: "Garry Kasparov" },
+  { text: "Even the greatest grandmasters were once beginners who never gave up.", author: "Chess Wisdom" },
+  { text: "Defeat is not the end; it is simply the training ground for true champions.", author: "Chess Proverb" },
+  { text: "Tactics flow from a superior position. Analyze your mistakes and strike back stronger.", author: "Bobby Fischer" },
+  { text: "A strong player is always humble in defeat and determined in the next battle.", author: "Magnus Carlsen" },
+  { text: "In chess, as in life, mistakes are the stepping stones to wisdom.", author: "Viswanathan Anand" },
+];
+
+const getRandomQuote = () => {
+  return CHESS_LOSER_QUOTES[Math.floor(Math.random() * CHESS_LOSER_QUOTES.length)];
+};
 
 const computeCapturedPieces = (chessInst) => {
   const whiteCaps = [];
@@ -40,7 +58,7 @@ const computeCapturedPieces = (chessInst) => {
         else blackCaps.push(m.captured);
       }
     });
-  } catch (e) {}
+  } catch (e) { }
   return { white: whiteCaps, black: blackCaps };
 };
 
@@ -132,7 +150,7 @@ export default function ChessBoard({
             timeRemainingSeconds: 300,
             unlockReason: reason,
           }));
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (onSecretMoveDetected) {
@@ -159,7 +177,7 @@ export default function ChessBoard({
       };
     } else {
       // two-player mode
-      const matched = friendsList.find((f) => 
+      const matched = friendsList.find((f) =>
         f.username === player2Name || f.name === player2Name || f.playerId === player2Name || f.id === player2Name
       );
       if (matched) {
@@ -203,7 +221,7 @@ export default function ChessBoard({
         timeRemainingSeconds: 300,
         unlockReason: reason,
       }));
-    } catch (e) {}
+    } catch (e) { }
 
     unlockSecretChat({
       friendId: friendParam,
@@ -233,6 +251,8 @@ export default function ChessBoard({
     method: 'Checkmate',
     isDraw: false,
     isUserWin: false,
+    ratingChange: '+0',
+    quote: null,
     moves: 0,
   });
 
@@ -258,50 +278,63 @@ export default function ChessBoard({
       let winnerName = '';
       let winnerSubtitle = '';
       let isUserWin = false;
+      let ratingChange = '+0';
+      let quote = null;
 
       if (gameMode === 'computer') {
         const userWon = winningColor === playerColor;
         const currentUserName = user?.username || user?.name || 'You';
         if (userWon) {
-          winnerTitle = `${currentUserName.toUpperCase()} WINS!`;
-          winnerName = currentUserName;
-          winnerSubtitle = `Outstanding Checkmate! ${currentUserName} defeated Computer.`;
           isUserWin = true;
+          winnerTitle = 'VICTORY! YOU WON!';
+          winnerName = currentUserName;
+          winnerSubtitle = `Outstanding Checkmate! You defeated Computer in a masterclass duel.`;
+          ratingChange = '+25';
           try {
             confetti({ particleCount: 140, spread: 85, origin: { y: 0.55 } });
-          } catch (e) {}
+          } catch (e) { }
         } else {
-          winnerTitle = 'COMPUTER WINS!';
-          winnerName = 'Computer';
-          winnerSubtitle = 'Checkmate! Computer won this game.';
           isUserWin = false;
+          winnerTitle = 'YOU LOST THE GAME';
+          winnerName = 'Computer';
+          winnerSubtitle = 'Better luck next time! Computer delivered checkmate.';
+          ratingChange = '-25';
+          quote = getRandomQuote();
         }
       } else if (gameMode === 'online') {
         const isUserWinOnline = winningColor === playerColor;
-        const currentUserName = user?.username || user?.name || 'You';
-        const oppName = player2Name || player1Name || 'Opponent';
-        winnerName = isUserWinOnline ? currentUserName : oppName;
-        winnerTitle = `${winnerName.toUpperCase()} WINS!`;
-        winnerSubtitle = isUserWinOnline
-          ? `Checkmate! You claimed glorious victory against ${oppName}.`
-          : `Checkmate! ${oppName} claimed victory.`;
-        isUserWin = isUserWinOnline;
-        if (isUserWin) {
+        const currentUserName = user?.username || user?.name || (playerColor === 'w' ? player1Name : player2Name) || 'You';
+        const oppName = activeOnlineMatch?.opponentName || (playerColor === 'w' ? player2Name : player1Name) || 'Opponent';
+
+        if (isUserWinOnline) {
+          isUserWin = true;
+          winnerTitle = 'VICTORY! YOU WON!';
+          winnerName = currentUserName;
+          winnerSubtitle = `Outstanding Checkmate! You claimed glorious victory against ${oppName}.`;
+          ratingChange = '+25';
           try {
             confetti({ particleCount: 140, spread: 85, origin: { y: 0.55 } });
-          } catch (e) {}
+          } catch (e) { }
+        } else {
+          isUserWin = false;
+          winnerTitle = 'YOU LOST THE GAME';
+          winnerName = oppName;
+          winnerSubtitle = `Better luck next time! ${oppName} delivered checkmate. Learn from this match and strike back stronger.`;
+          ratingChange = '-25';
+          quote = getRandomQuote();
         }
       } else {
-        // Two-Player / Play vs Friends (Pass & Play on same screen)
+        // Two-Player / Pass & Play on same screen
         const p1 = player1Name || user?.username || user?.name || 'Player 1 (White)';
         const p2 = player2Name || 'Player 2 (Black)';
         winnerName = isWhiteWinner ? p1 : p2;
         winnerTitle = `${winnerName.toUpperCase()} WINS!`;
         winnerSubtitle = `Checkmate! ${winnerName} claimed glorious victory.`;
         isUserWin = true;
+        ratingChange = '+25';
         try {
           confetti({ particleCount: 140, spread: 85, origin: { y: 0.55 } });
-        } catch (e) {}
+        } catch (e) { }
       }
 
       setGameOverModal({
@@ -313,10 +346,12 @@ export default function ChessBoard({
         method: 'Checkmate',
         isDraw: false,
         isUserWin,
+        ratingChange,
+        quote,
         moves: chess.history().length,
       });
 
-      setGameStatus(`Checkmate! ${winnerName} Wins`);
+      setGameStatus(isUserWin ? `Victory! ${winnerName} Wins` : `Checkmate! ${winnerName} Wins`);
 
       if (onGameOver) {
         onGameOver({
@@ -324,6 +359,7 @@ export default function ChessBoard({
           winnerName,
           method: 'Checkmate',
           moves: chess.history().length,
+          ratingChange,
         });
       }
     } else if (chess.isStalemate()) {
@@ -336,6 +372,8 @@ export default function ChessBoard({
         method: 'Stalemate',
         isDraw: true,
         isUserWin: false,
+        ratingChange: '+0',
+        quote: null,
         moves: chess.history().length,
       });
       setGameStatus('Draw by Stalemate');
@@ -345,6 +383,7 @@ export default function ChessBoard({
           winnerName: 'Stalemate',
           method: 'Stalemate',
           moves: chess.history().length,
+          ratingChange: '+0',
         });
       }
     } else if (chess.isDraw()) {
@@ -357,6 +396,8 @@ export default function ChessBoard({
         method: 'Draw',
         isDraw: true,
         isUserWin: false,
+        ratingChange: '+0',
+        quote: null,
         moves: chess.history().length,
       });
       setGameStatus('Draw (Repetition / 50-move rule)');
@@ -366,6 +407,7 @@ export default function ChessBoard({
           winnerName: 'Draw',
           method: 'Draw',
           moves: chess.history().length,
+          ratingChange: '+0',
         });
       }
     } else if (chess.inCheck()) {
@@ -395,232 +437,231 @@ export default function ChessBoard({
     }
   };
 
-  // Online Multiplayer Live WebSocket synchronization
+  // Online Multiplayer Live WebSocket synchronization & State Management
+  const handleOnlineChatUnlock = (gameData) => {
+    if (!gameData?.chat_unlocked) return;
+    const opp = getOpponentInfo();
+    const reason = gameData.chat_unlock_reason || 'Piece captured within first 5 moves';
+    const oppId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId || opp.id;
+    const targetFriend = {
+      id: oppId,
+      playerId: oppId,
+      name: opp.name,
+      username: opp.name,
+      mode: 'online',
+    };
+    const unlockKey = `${onlineGameId || 'online'}:${oppId}`;
+    if (!chatUnlockHandledRef.current.has(unlockKey)) {
+      chatUnlockHandledRef.current.add(unlockKey);
+      if (token && oppId) {
+        api.unlockChat(token, oppId, { reason, game_id: onlineGameId }).catch(() => { });
+      }
+      const expiresAt = new Date(Date.now() + 300 * 1000).toISOString();
+      try {
+        localStorage.setItem('cc_selected_chat_opponent', JSON.stringify({
+          ...targetFriend,
+          isUnlocked: true,
+          expiresAt,
+          timeRemainingSeconds: 300,
+          unlockReason: reason,
+        }));
+      } catch (e) { }
+      unlockSecretChat({
+        friendId: oppId,
+        reason,
+        durationSeconds: 300,
+      });
+      if (onChatUnlockInPlace) {
+        onChatUnlockInPlace(targetFriend);
+      } else if (onNavigate) {
+        onNavigate('chat');
+      }
+    }
+  };
+
+  const syncOnlineGameState = (gameData, isMoveEvent = false) => {
+    if (!gameData) return;
+    if (gameData.captured_pieces) {
+      setCapturedPieces(gameData.captured_pieces);
+    }
+    handleOnlineChatUnlock(gameData);
+
+    if (gameData.moves && Array.isArray(gameData.moves)) {
+      const currentHist = chess.history();
+      if (currentHist.length !== gameData.moves.length || gameData.fen) {
+        chess.reset();
+        gameData.moves.forEach((m) => {
+          try {
+            chess.move({ from: m.slice(0, 2), to: m.slice(2, 4), promotion: m[4] || 'q' });
+          } catch (e) { }
+        });
+        if (gameData.fen && chess.fen() !== gameData.fen) {
+          try {
+            chess.load(gameData.fen);
+          } catch (e) { }
+        }
+        const last = gameData.moves[gameData.moves.length - 1];
+        if (last) {
+          setLastMove({ from: last.slice(0, 2), to: last.slice(2, 4) });
+          if (isMoveEvent && soundEnabled) {
+            playChessSound('move');
+          }
+        }
+        refreshBoard();
+      } else {
+        setHistory([...chess.history()]);
+      }
+    }
+  };
+
   useEffect(() => {
     if (gameMode !== 'online' || !onlineGameId) return;
 
-    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-      ? '127.0.0.1:8000'
-      : window.location.host;
-    const wsUrl = `${wsProto}//${wsHost}/api/games/${onlineGameId}/ws`;
+    let isSubscribed = true;
+    let reconnectTimer = null;
+    let pingInterval = null;
 
-    console.log('Connecting to online WebSocket:', wsUrl);
-    const socket = new WebSocket(wsUrl);
-    socketRef.current = socket;
+    const connect = () => {
+      if (!isSubscribed) return;
 
-    socket.onopen = () => {
-      setOnlineConnected(true);
-      setOnlineOpponentStatus('Connected to live match arena');
-    };
+      const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      // Route through window.location.host which Vite proxies, fallback safe
+      const wsUrl = `${wsProto}//${window.location.host}/api/games/${onlineGameId}/ws`;
 
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'connected') {
-          setOnlineOpponentStatus('Player joined arena');
-          if (data.game?.captured_pieces) {
-            setCapturedPieces(data.game.captured_pieces);
+      console.log('Connecting to online WebSocket:', wsUrl);
+      const socket = new WebSocket(wsUrl);
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        if (!isSubscribed) {
+          socket.close();
+          return;
+        }
+        setOnlineConnected(true);
+        setOnlineOpponentStatus('Live match arena connected');
+
+        // Request latest state immediately to catch up on any moves played
+        try {
+          socket.send(JSON.stringify({ action: 'state' }));
+        } catch (e) { }
+
+        // Setup ping keepalive every 12 seconds
+        if (pingInterval) clearInterval(pingInterval);
+        pingInterval = setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ action: 'ping' }));
           }
-          if (data.game?.chat_unlocked) {
-            const opp = getOpponentInfo();
-            const reason = data.game.chat_unlock_reason || 'Piece captured within first 5 moves';
-            const oppId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId || opp.id;
-            const targetFriend = {
-              id: oppId,
-              playerId: oppId,
-              name: opp.name,
-              username: opp.name,
-              mode: 'online',
-            };
-            const unlockKey = `${onlineGameId || 'online'}:${oppId}`;
-            if (!chatUnlockHandledRef.current.has(unlockKey)) {
-              chatUnlockHandledRef.current.add(unlockKey);
-              if (token && oppId) {
-                api.unlockChat(token, oppId, { reason, game_id: onlineGameId }).catch(() => {});
-              }
-              const expiresAt = new Date(Date.now() + 300 * 1000).toISOString();
+        }, 12000);
+      };
+
+      socket.onmessage = (event) => {
+        if (!isSubscribed) return;
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'pong') return;
+
+          if (data.type === 'connected' || data.type === 'state') {
+            setOnlineConnected(true);
+            setOnlineOpponentStatus('Arena synchronized');
+            syncOnlineGameState(data.game, false);
+          } else if (data.type === 'move') {
+            syncOnlineGameState(data.game, true);
+          } else if (data.type === 'resignation') {
+            const isOpponentResign = data.resigning_player !== playerColor;
+            const currentUserName = user?.username || user?.name || (playerColor === 'w' ? player1Name : player2Name) || 'You';
+            const oppName = activeOnlineMatch?.opponentName || (playerColor === 'w' ? player2Name : player1Name) || 'Opponent';
+            const resWinner = isOpponentResign ? currentUserName : oppName;
+            const resTitle = isOpponentResign ? 'VICTORY! YOU WON!' : 'YOU LOST THE GAME';
+            const resSubtitle = isOpponentResign
+              ? `Opponent resigned the match. You claimed victory!`
+              : `You resigned the match. Better luck next time!`;
+            const ratingChange = isOpponentResign ? '+25' : '-25';
+            const quote = isOpponentResign ? null : getRandomQuote();
+
+            if (isOpponentResign) {
               try {
-                localStorage.setItem('cc_selected_chat_opponent', JSON.stringify({
-                  ...targetFriend,
-                  isUnlocked: true,
-                  expiresAt,
-                  timeRemainingSeconds: 300,
-                  unlockReason: reason,
-                }));
-              } catch (e) {}
-              unlockSecretChat({
-                friendId: oppId,
-                reason,
-                durationSeconds: 300,
-              });
-              if (onChatUnlockInPlace) {
-                onChatUnlockInPlace(targetFriend);
-              } else if (onNavigate) {
-                onNavigate('chat');
-              }
+                confetti({ particleCount: 140, spread: 85, origin: { y: 0.55 } });
+              } catch (e) { }
             }
-          }
-          if (data.game?.moves && Array.isArray(data.game.moves) && data.game.moves.length > 0) {
-            chess.reset();
-            data.game.moves.forEach((m) => {
-              try {
-                chess.move({ from: m.slice(0, 2), to: m.slice(2, 4), promotion: m[4] || 'q' });
-              } catch (e) {}
-            });
-            const last = data.game.moves[data.game.moves.length - 1];
-            if (last) {
-              setLastMove({ from: last.slice(0, 2), to: last.slice(2, 4) });
-            }
-            refreshBoard();
-          }
-        } else if (data.type === 'move') {
-          if (data.game?.captured_pieces) {
-            setCapturedPieces(data.game.captured_pieces);
-          }
-          if (data.game?.chat_unlocked) {
-            const opp = getOpponentInfo();
-            const reason = data.game.chat_unlock_reason || 'Piece captured within first 5 moves';
-            const oppId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId || opp.id;
-            const targetFriend = {
-              id: oppId,
-              playerId: oppId,
-              name: opp.name,
-              username: opp.name,
-              mode: 'online',
-            };
-            const unlockKey = `${onlineGameId || 'online'}:${oppId}`;
-            if (!chatUnlockHandledRef.current.has(unlockKey)) {
-              chatUnlockHandledRef.current.add(unlockKey);
-              if (token && oppId) {
-                api.unlockChat(token, oppId, { reason, game_id: onlineGameId }).catch(() => {});
-              }
-              const expiresAt = new Date(Date.now() + 300 * 1000).toISOString();
-              try {
-                localStorage.setItem('cc_selected_chat_opponent', JSON.stringify({
-                  ...targetFriend,
-                  isUnlocked: true,
-                  expiresAt,
-                  timeRemainingSeconds: 300,
-                  unlockReason: reason,
-                }));
-              } catch (e) {}
-              unlockSecretChat({
-                friendId: oppId,
-                reason,
-                durationSeconds: 300,
-              });
-              if (onChatUnlockInPlace) {
-                onChatUnlockInPlace(targetFriend);
-              } else if (onNavigate) {
-                onNavigate('chat');
-              }
-            }
-          }
-          if (data.game?.moves && Array.isArray(data.game.moves)) {
-            const currentHist = chess.history();
-            // If local chess does not have all moves (e.g. opponent move came in), replay cleanly
-            if (currentHist.length !== data.game.moves.length) {
-              chess.reset();
-              data.game.moves.forEach((m) => {
-                try {
-                  chess.move({ from: m.slice(0, 2), to: m.slice(2, 4), promotion: m[4] || 'q' });
-                } catch (e) {}
-              });
-              const last = data.game.moves[data.game.moves.length - 1];
-              if (last) {
-                setLastMove({ from: last.slice(0, 2), to: last.slice(2, 4) });
-                if (soundEnabled) playChessSound('move');
-              }
-              refreshBoard();
-            } else {
-              // Local already made the move, just ensure history & state are synced without wiping
-              setHistory([...chess.history()]);
-            }
-          }
-        } else if (data.type === 'resignation') {
-          const isOpponentResign = data.resigning_player !== playerColor;
-          const currentUserName = user?.username || user?.name || 'You';
-          const oppName = player2Name || player1Name || 'Opponent';
-          const resWinner = isOpponentResign ? currentUserName : oppName;
-          const resTitle = `${resWinner.toUpperCase()} WINS!`;
-          const resSubtitle = isOpponentResign
-            ? `Opponent resigned the match. You claimed victory!`
-            : `You resigned the match.`;
 
-          if (isOpponentResign) {
-            try {
-              confetti({ particleCount: 140, spread: 85, origin: { y: 0.55 } });
-            } catch (e) {}
-          }
-
-          setGameOverModal({
-            isOpen: true,
-            winner: resWinner,
-            winnerName: resWinner,
-            title: resTitle,
-            subtitle: resSubtitle,
-            method: 'Resignation',
-            isDraw: false,
-            isUserWin: isOpponentResign,
-            moves: chess.history().length,
-          });
-
-          setGameStatus(`Resignation! ${resWinner} Wins`);
-
-          if (onGameOver) {
-            onGameOver({
-              result: isOpponentResign ? 'Won' : 'Lost',
+            setGameOverModal({
+              isOpen: true,
+              winner: resWinner,
               winnerName: resWinner,
+              title: resTitle,
+              subtitle: resSubtitle,
               method: 'Resignation',
+              isDraw: false,
+              isUserWin: isOpponentResign,
+              ratingChange,
+              quote,
               moves: chess.history().length,
             });
+
+            setGameStatus(isOpponentResign ? `Victory! Opponent Resigned` : `Resigned! Better Luck Next Time`);
+
+            if (onGameOver) {
+              onGameOver({
+                result: isOpponentResign ? 'Won' : 'Lost',
+                winnerName: resWinner,
+                method: 'Resignation',
+                moves: chess.history().length,
+                ratingChange,
+              });
+            }
+          } else if (data.type === 'disconnected') {
+            setOnlineOpponentStatus('Opponent reconnecting...');
+          } else if (data.type === 'cancelled') {
+            setOnlineOpponentStatus('Match cancelled');
+            setGameStatus('Match Cancelled');
+            setGameOverModal({
+              isOpen: true,
+              winner: null,
+              winnerName: 'Match Cancelled',
+              title: 'ONLINE MATCH CANCELLED',
+              subtitle: data.message || 'The online match was cancelled because a player changed the board or left the arena.',
+              method: 'Match Cancelled',
+              isDraw: false,
+              isUserWin: false,
+              moves: chess.history().length,
+            });
+            if (onOnlineMatchCancelled) {
+              onOnlineMatchCancelled();
+            }
           }
-        } else if (data.type === 'disconnected') {
-          setOnlineOpponentStatus('Opponent disconnected');
-        } else if (data.type === 'cancelled') {
-          setOnlineOpponentStatus('Match cancelled - board changed or player left');
-          setGameStatus('Match Cancelled');
-          setGameOverModal({
-            isOpen: true,
-            winner: null,
-            winnerName: 'Match Cancelled',
-            title: 'ONLINE MATCH CANCELLED',
-            subtitle: data.message || 'The online match was cancelled because a player changed the board or left the arena.',
-            method: 'Match Cancelled',
-            isDraw: false,
-            isUserWin: false,
-            moves: chess.history().length,
-          });
-          if (onOnlineMatchCancelled) {
-            onOnlineMatchCancelled();
-          }
+        } catch (err) {
+          console.warn('WS Message error:', err);
         }
-      } catch (err) {
-        console.warn('WS Message error:', err);
-      }
+      };
+
+      socket.onclose = () => {
+        if (!isSubscribed) return;
+        setOnlineConnected(false);
+        setOnlineOpponentStatus('Reconnecting to arena...');
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+          if (isSubscribed) {
+            connect();
+          }
+        }, 1500);
+      };
+
+      socket.onerror = (err) => {
+        console.warn('WS socket error:', err);
+        setOnlineConnected(false);
+      };
     };
 
-    socket.onclose = () => {
-      setOnlineConnected(false);
-    };
-
-    socket.onerror = (err) => {
-      console.warn('WS socket error:', err);
-      setOnlineConnected(false);
-    };
+    connect();
 
     return () => {
-      if (socket.readyState === WebSocket.OPEN) {
-        try {
-          socket.send(JSON.stringify({
-            action: 'cancel',
-            reason: 'board_changed'
-          }));
-        } catch (e) {}
+      isSubscribed = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (pingInterval) clearInterval(pingInterval);
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
       }
-      socket.close();
-      socketRef.current = null;
     };
   }, [gameMode, onlineGameId]);
 
@@ -628,23 +669,20 @@ export default function ChessBoard({
   const handleResign = () => {
     if (chess.isGameOver()) return;
 
-    let winnerTitle = '';
+    let winnerTitle = 'YOU LOST THE GAME';
     let winnerName = '';
-    let winnerSubtitle = '';
+    let winnerSubtitle = 'You resigned the match. Better luck next time!';
     let isUserWin = false;
+    let ratingChange = '-25';
+    let quote = getRandomQuote();
 
     if (gameMode === 'computer') {
-      const currentUserName = user?.username || user?.name || 'You';
-      winnerTitle = 'COMPUTER WINS!';
       winnerName = 'Computer';
-      winnerSubtitle = `${currentUserName} resigned. Computer won this game.`;
-      isUserWin = false;
+      winnerSubtitle = 'You resigned. Better luck next time!';
     } else if (gameMode === 'online') {
-      const oppName = player2Name || player1Name || 'Opponent';
-      winnerTitle = `${oppName.toUpperCase()} WINS!`;
+      const oppName = activeOnlineMatch?.opponentName || (playerColor === 'w' ? player2Name : player1Name) || 'Opponent';
       winnerName = oppName;
-      winnerSubtitle = `You resigned the match. ${oppName} won.`;
-      isUserWin = false;
+      winnerSubtitle = `You resigned the match against ${oppName}. Better luck next time!`;
 
       // Notify server and opponent via WebSocket
       if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
@@ -661,9 +699,11 @@ export default function ChessBoard({
       winnerTitle = `${winnerName.toUpperCase()} WINS!`;
       winnerSubtitle = `Opponent resigned the match.`;
       isUserWin = true;
+      ratingChange = '+25';
+      quote = null;
       try {
         confetti({ particleCount: 90, spread: 70, origin: { y: 0.55 } });
-      } catch (e) {}
+      } catch (e) { }
     }
 
     setGameOverModal({
@@ -675,10 +715,12 @@ export default function ChessBoard({
       method: 'Resignation',
       isDraw: false,
       isUserWin,
+      ratingChange,
+      quote,
       moves: chess.history().length,
     });
 
-    setGameStatus(`Resignation! ${winnerName} Wins`);
+    setGameStatus(isUserWin ? `Victory! ${winnerName} Wins` : `Resigned! Better Luck Next Time`);
 
     if (onGameOver) {
       onGameOver({
@@ -686,6 +728,7 @@ export default function ChessBoard({
         winnerName,
         method: 'Resignation',
         moves: chess.history().length,
+        ratingChange,
       });
     }
   };
@@ -769,7 +812,7 @@ export default function ChessBoard({
           action: 'cancel',
           reason: 'board_reset'
         }));
-      } catch (e) {}
+      } catch (e) { }
     }
     if (onOnlineMatchCancelled) {
       onOnlineMatchCancelled();
@@ -871,13 +914,29 @@ export default function ChessBoard({
           // after any real online capture.
           unlockChatAfterCapture(move);
 
-          // Real-time WebSocket Move Broadcast in Online Mode
-          if (gameMode === 'online' && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-            socketRef.current.send(JSON.stringify({
-              action: 'move',
-              from_square: move.from,
-              to_square: move.to + (move.promotion || ''),
-            }));
+          // Real-time Move Broadcast in Online Mode
+          if (gameMode === 'online') {
+            const toSquareNotation = move.to + (move.promotion || '');
+            let sentViaWs = false;
+
+            if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+              try {
+                socketRef.current.send(JSON.stringify({
+                  action: 'move',
+                  from_square: move.from,
+                  to_square: toSquareNotation,
+                }));
+                sentViaWs = true;
+              } catch (e) {
+                console.warn('WS move broadcast failed, using HTTP fallback:', e);
+              }
+            }
+
+            // HTTP fallback to guarantee the move is never lost
+            if (!sentViaWs && onlineGameId) {
+              api.sendGameMove(onlineGameId, move.from, toSquareNotation)
+                .catch((err) => console.warn('HTTP fallback error:', err));
+            }
           }
 
 
@@ -918,7 +977,7 @@ export default function ChessBoard({
     <div className="w-full max-w-5xl mx-auto flex flex-col lg:flex-row items-center lg:items-start justify-center gap-6 py-4">
       {/* ================= MAIN CHESS ARENA (Matches Image 2) ================= */}
       <div className="flex flex-col items-center">
-        
+
         {/* Top Header / Opponent Info Bar (Matches Image 2 top bar) */}
         <div className="w-full max-w-[500px] sm:max-w-[540px] md:max-w-[580px] mb-3 flex items-center justify-between px-3 py-2.5 rounded-2xl bg-gradient-to-r from-[#172033] via-[#0f172a] to-[#172033] border border-[#d4af37]/40 shadow-lg">
           {/* Left: Opponent Avatar & Level */}
@@ -931,29 +990,28 @@ export default function ChessBoard({
                   <User className="w-5 h-5 text-blue-400" />
                 )}
               </div>
-              <span className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-[#0f172a] ${
-                gameMode === 'online' 
+              <span className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-[#0f172a] ${gameMode === 'online'
                   ? (onlineConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500')
                   : 'bg-emerald-500'
-              }`} />
+                }`} />
             </div>
 
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] tracking-wider uppercase font-bold text-amber-400 font-mono flex items-center gap-1.5">
-                  {gameMode === 'computer' 
-                    ? `LEVEL · ${aiDifficulty.toUpperCase()}` 
+                  {gameMode === 'computer'
+                    ? `LEVEL · ${aiDifficulty.toUpperCase()}`
                     : gameMode === 'online'
-                    ? '● LIVE 1v1 OPPONENT'
-                    : 'PLAY VS FRIEND'}
+                      ? '● LIVE 1v1 OPPONENT'
+                      : 'PLAY VS FRIEND'}
                 </span>
               </div>
               <p className="text-xs sm:text-sm font-extrabold text-white leading-tight">
                 {gameMode === 'computer'
                   ? 'Computer'
                   : gameMode === 'online'
-                  ? (playerColor === 'w' ? (player2Name || 'Opponent') : (player1Name || 'Opponent'))
-                  : (player2Name || 'Friend (Player 2)')}
+                    ? (playerColor === 'w' ? (player2Name || 'Opponent') : (player1Name || 'Opponent'))
+                    : (player2Name || 'Friend (Player 2)')}
               </p>
             </div>
           </div>
@@ -1059,36 +1117,33 @@ export default function ChessBoard({
                     <div
                       key={square}
                       onClick={() => handleSquareClick(square)}
-                      className={`w-11 h-11 sm:w-14 sm:h-14 md:w-16 md:h-16 flex items-center justify-center relative cursor-pointer select-none transition-all duration-150 ${
-                        isKingInDanger
+                      className={`w-11 h-11 sm:w-14 sm:h-14 md:w-16 md:h-16 flex items-center justify-center relative cursor-pointer select-none transition-all duration-150 ${isKingInDanger
                           ? 'bg-rose-600/80 ring-4 ring-rose-500 shadow-[0_0_30px_rgba(244,63,94,0.95)] animate-pulse z-20'
                           : isSelected
-                          ? 'bg-amber-400/60 ring-2 ring-inset ring-amber-300'
-                          : isHint
-                          ? 'bg-yellow-400/50 animate-pulse ring-2 ring-yellow-400'
-                          : isLastMove
-                          ? isLight
-                            ? 'bg-[#edd998]'
-                            : 'bg-[#4a4e32]'
-                          : isLight
-                          ? 'bg-[#ebd7b6] hover:bg-[#f3dfbf]'
-                          : 'bg-[#272b34] hover:bg-[#2e3440]'
-                      }`}
+                            ? 'bg-amber-400/60 ring-2 ring-inset ring-amber-300'
+                            : isHint
+                              ? 'bg-yellow-400/50 animate-pulse ring-2 ring-yellow-400'
+                              : isLastMove
+                                ? isLight
+                                  ? 'bg-[#edd998]'
+                                  : 'bg-[#4a4e32]'
+                                : isLight
+                                  ? 'bg-[#ebd7b6] hover:bg-[#f3dfbf]'
+                                  : 'bg-[#272b34] hover:bg-[#2e3440]'
+                        }`}
                     >
                       {/* Left Rank Coordinate inside square */}
                       {file === files[0] && (
-                        <span className={`absolute top-0.5 left-1 text-[9px] font-bold pointer-events-none font-mono ${
-                          isLight ? 'text-[#8c7456]' : 'text-[#64748b]'
-                        }`}>
+                        <span className={`absolute top-0.5 left-1 text-[9px] font-bold pointer-events-none font-mono ${isLight ? 'text-[#8c7456]' : 'text-[#64748b]'
+                          }`}>
                           {rank}
                         </span>
                       )}
 
                       {/* Bottom File Coordinate inside square */}
                       {rank === ranks[ranks.length - 1] && (
-                        <span className={`absolute bottom-0.5 right-1 text-[9px] font-bold pointer-events-none font-mono ${
-                          isLight ? 'text-[#8c7456]' : 'text-[#64748b]'
-                        }`}>
+                        <span className={`absolute bottom-0.5 right-1 text-[9px] font-bold pointer-events-none font-mono ${isLight ? 'text-[#8c7456]' : 'text-[#64748b]'
+                          }`}>
                           {file}
                         </span>
                       )}
@@ -1103,11 +1158,10 @@ export default function ChessBoard({
                       {/* Legal Move Marker */}
                       {isLegalDestination && (
                         <div
-                          className={`absolute rounded-full pointer-events-none z-20 ${
-                            piece
+                          className={`absolute rounded-full pointer-events-none z-20 ${piece
                               ? 'w-full h-full border-4 border-amber-400/80 rounded-none shadow-[inset_0_0_12px_rgba(245,158,11,0.5)]'
                               : 'w-3.5 h-3.5 sm:w-4 sm:h-4 bg-amber-400/90 shadow-[0_0_10px_rgba(245,158,11,0.9)] ring-2 ring-black/40'
-                          }`}
+                            }`}
                         />
                       )}
 
@@ -1164,11 +1218,10 @@ export default function ChessBoard({
             )}
 
             <span
-              className={`text-xs px-3 py-1 rounded-full font-bold flex items-center gap-1.5 ${
-                turn === playerColor
+              className={`text-xs px-3 py-1 rounded-full font-bold flex items-center gap-1.5 ${turn === playerColor
                   ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.25)]'
                   : 'bg-slate-800 text-slate-400'
-              }`}
+                }`}
             >
               {turn === playerColor ? (
                 <>
@@ -1184,7 +1237,7 @@ export default function ChessBoard({
 
         {/* ================= 4 CIRCULAR ACTION BUTTONS (Matches Image 2 exactly) ================= */}
         <div className="w-full max-w-[500px] sm:max-w-[540px] md:max-w-[580px] mt-4 flex items-center justify-around gap-2 px-2">
-          
+
           {/* Button 1: RESTART */}
           <button
             onClick={handleRestartClick}
@@ -1208,15 +1261,14 @@ export default function ChessBoard({
               setShowSideModal(true);
             }}
             disabled={gameMode === 'online' || isSideSelectionClosed}
-            className={`flex flex-col items-center gap-1 group focus:outline-none ${
-              gameMode === 'online' || isSideSelectionClosed ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
-            }`}
+            className={`flex flex-col items-center gap-1 group focus:outline-none ${gameMode === 'online' || isSideSelectionClosed ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+              }`}
             title={
-              gameMode === 'online' 
-                ? 'Assigned side in online match' 
+              gameMode === 'online'
+                ? 'Assigned side in online match'
                 : isSideSelectionClosed
-                ? 'Option closed (Closed after 5 moves each)'
-                : 'Select Side (White / Black)'
+                  ? 'Option closed (Closed after 5 moves each)'
+                  : 'Select Side (White / Black)'
             }
           >
             <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-b from-[#64748b] via-[#334155] to-[#1e293b] p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.6)] group-hover:scale-105 transition-transform">
@@ -1236,9 +1288,8 @@ export default function ChessBoard({
           <button
             onClick={handleUndo}
             disabled={history.length === 0 || isAiThinking || gameMode === 'online'}
-            className={`flex flex-col items-center gap-1 group focus:outline-none ${
-              history.length === 0 || isAiThinking || gameMode === 'online' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
-            }`}
+            className={`flex flex-col items-center gap-1 group focus:outline-none ${history.length === 0 || isAiThinking || gameMode === 'online' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+              }`}
             title={gameMode === 'online' ? 'Undo not permitted in online match' : 'Undo Move'}
           >
             <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-b from-[#64748b] via-[#334155] to-[#1e293b] p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.6)] group-hover:scale-105 transition-transform">
@@ -1255,9 +1306,8 @@ export default function ChessBoard({
           <button
             onClick={handleGetHint}
             disabled={isAiThinking || chess.isGameOver() || gameMode === 'online'}
-            className={`flex flex-col items-center gap-1 group focus:outline-none relative ${
-              gameMode === 'online' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
-            }`}
+            className={`flex flex-col items-center gap-1 group focus:outline-none relative ${gameMode === 'online' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+              }`}
             title={gameMode === 'online' ? 'Hints disabled in online match' : 'Tactical Hint'}
           >
             <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-b from-[#b45309] via-[#78350f] to-[#451a03] p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.6)] group-hover:scale-105 transition-transform relative">
@@ -1278,9 +1328,8 @@ export default function ChessBoard({
           <button
             onClick={handleResign}
             disabled={isAiThinking || chess.isGameOver()}
-            className={`flex flex-col items-center gap-1 group focus:outline-none ${
-              isAiThinking || chess.isGameOver() ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
+            className={`flex flex-col items-center gap-1 group focus:outline-none ${isAiThinking || chess.isGameOver() ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             title="Resign Match"
           >
             <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-b from-[#881337] via-[#4c0519] to-[#27020d] p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.6)] group-hover:scale-105 transition-transform">
@@ -1305,13 +1354,12 @@ export default function ChessBoard({
               <span>Match Center</span>
             </h3>
             <span
-              className={`text-[11px] px-2.5 py-0.5 rounded-full font-bold ${
-                gameStatus.includes('Checkmate')
+              className={`text-[11px] px-2.5 py-0.5 rounded-full font-bold ${gameStatus.includes('Checkmate')
                   ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
                   : gameStatus.includes('Check')
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-              }`}
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                }`}
             >
               {gameStatus}
             </span>
@@ -1334,11 +1382,10 @@ export default function ChessBoard({
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
                   onClick={() => handleSelectSide('w')}
-                  className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                    playerColor === 'w'
+                  className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${playerColor === 'w'
                       ? 'bg-gradient-to-r from-amber-200 to-amber-400 text-black shadow-lg shadow-amber-500/25 ring-2 ring-amber-300'
                       : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
-                  }`}
+                    }`}
                 >
                   <span>♔</span>
                   <span>White</span>
@@ -1346,11 +1393,10 @@ export default function ChessBoard({
 
                 <button
                   onClick={() => handleSelectSide('b')}
-                  className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                    playerColor === 'b'
+                  className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${playerColor === 'b'
                       ? 'bg-gradient-to-r from-slate-800 to-slate-950 text-white border border-amber-400 shadow-lg shadow-amber-500/25 ring-2 ring-amber-400/80'
                       : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
-                  }`}
+                    }`}
                 >
                   <span>♚</span>
                   <span>Black</span>
@@ -1440,11 +1486,10 @@ export default function ChessBoard({
               {/* White Option */}
               <button
                 onClick={() => handleSelectSide('w')}
-                className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all group ${
-                  playerColor === 'w'
+                className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all group ${playerColor === 'w'
                     ? 'bg-amber-500/20 border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.35)]'
                     : 'bg-[#1e293b]/70 border-slate-700 hover:border-amber-400/60'
-                }`}
+                  }`}
               >
                 <div className="w-12 h-12 flex items-center justify-center">
                   <ChessPiece type="k" color="w" className="w-10 h-10" />
@@ -1456,11 +1501,10 @@ export default function ChessBoard({
               {/* Black Option */}
               <button
                 onClick={() => handleSelectSide('b')}
-                className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all group ${
-                  playerColor === 'b'
+                className={`p-4 rounded-2xl border-2 flex flex-col items-center gap-2 transition-all group ${playerColor === 'b'
                     ? 'bg-amber-500/20 border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.35)]'
                     : 'bg-[#1e293b]/70 border-slate-700 hover:border-amber-400/60'
-                }`}
+                  }`}
               >
                 <div className="w-12 h-12 flex items-center justify-center">
                   <ChessPiece type="k" color="b" className="w-10 h-10" />
@@ -1473,17 +1517,16 @@ export default function ChessBoard({
         </div>
       )}
 
-      {/* ================= MODAL: GAME OVER WINNER ANNOUNCEMENT ================= */}
+      {/* ================= MODAL: GAME OVER ANNOUNCEMENT ================= */}
       {gameOverModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
           <div
-            className={`relative w-full max-w-md rounded-3xl p-6 sm:p-8 text-center space-y-6 shadow-2xl transition-all ${
-              gameOverModal.isDraw
+            className={`relative w-full max-w-md rounded-3xl p-6 sm:p-8 text-center space-y-5 shadow-2xl transition-all ${gameOverModal.isDraw
                 ? 'bg-gradient-to-b from-[#131b2e] via-[#0f1728] to-[#0a0f1d] border-2 border-slate-600 shadow-[0_0_40px_rgba(148,163,184,0.2)]'
-                : gameOverModal.isUserWin || (gameOverModal.winnerName !== 'Computer' && !gameOverModal.winnerName.includes('Stockfish'))
-                ? 'bg-gradient-to-b from-[#0e1a30] via-[#0c1527] to-[#080d1a] border-2 border-amber-400 shadow-[0_0_50px_rgba(245,158,11,0.35)]'
-                : 'bg-gradient-to-b from-[#1f1118] via-[#160c13] to-[#0a0508] border-2 border-rose-500/80 shadow-[0_0_50px_rgba(244,63,94,0.3)]'
-            }`}
+                : gameOverModal.isUserWin
+                  ? 'bg-gradient-to-b from-[#0e1a30] via-[#0c1527] to-[#080d1a] border-2 border-amber-400 shadow-[0_0_50px_rgba(245,158,11,0.4)]'
+                  : 'bg-gradient-to-b from-[#1f0f16] via-[#160b12] to-[#0a0508] border-2 border-rose-500/80 shadow-[0_0_50px_rgba(244,63,94,0.35)]'
+              }`}
           >
             {/* Top Close Button (Review Board) */}
             <button
@@ -1500,13 +1543,13 @@ export default function ChessBoard({
                 <div className="w-20 h-20 rounded-3xl bg-slate-800/80 border-2 border-slate-600 flex items-center justify-center shadow-lg">
                   <Award className="w-10 h-10 text-slate-300" />
                 </div>
-              ) : gameOverModal.isUserWin || (gameOverModal.winnerName !== 'Computer' && !gameOverModal.winnerName.includes('Stockfish')) ? (
-                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-400/25 to-amber-500/10 border-2 border-amber-400 flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.4)] animate-bounce">
+              ) : gameOverModal.isUserWin ? (
+                <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-400/25 to-amber-500/10 border-2 border-amber-400 flex items-center justify-center shadow-[0_0_35px_rgba(245,158,11,0.5)] animate-bounce">
                   <Trophy className="w-10 h-10 text-amber-300 fill-amber-400/30" />
                 </div>
               ) : (
-                <div className="w-20 h-20 rounded-3xl bg-rose-500/20 border-2 border-rose-500/60 flex items-center justify-center shadow-[0_0_30px_rgba(244,63,94,0.3)]">
-                  <Bot className="w-10 h-10 text-rose-400" />
+                <div className="w-20 h-20 rounded-3xl bg-rose-500/20 border-2 border-rose-500/70 flex items-center justify-center shadow-[0_0_35px_rgba(244,63,94,0.4)]">
+                  <Frown className="w-10 h-10 text-rose-400" />
                 </div>
               )}
             </div>
@@ -1514,20 +1557,54 @@ export default function ChessBoard({
             {/* Title & Subtitle */}
             <div className="space-y-1">
               <h2
-                className={`text-3xl sm:text-4xl font-black uppercase tracking-tight ${
-                  gameOverModal.isDraw
+                className={`text-2xl sm:text-3xl font-black uppercase tracking-tight ${gameOverModal.isDraw
                     ? 'text-slate-200'
-                    : gameOverModal.isUserWin || (gameOverModal.winnerName !== 'Computer' && !gameOverModal.winnerName.includes('Stockfish'))
-                    ? 'text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-amber-100'
-                    : 'text-rose-400'
-                }`}
+                    : gameOverModal.isUserWin
+                      ? 'text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-amber-100 drop-shadow-[0_0_15px_rgba(245,158,11,0.5)]'
+                      : 'text-rose-400 drop-shadow-[0_0_15px_rgba(244,63,94,0.4)]'
+                  }`}
               >
                 {gameOverModal.title}
               </h2>
-              <p className="text-xs sm:text-sm text-slate-300 font-medium">
+              <p className="text-xs sm:text-sm text-slate-300 font-medium leading-relaxed">
                 {gameOverModal.subtitle}
               </p>
             </div>
+
+            {/* Tactical Elo Rating Change Badge */}
+            <div className="flex items-center justify-center">
+              {gameOverModal.isDraw ? (
+                <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300 font-extrabold text-xs">
+                  <span>+0 Tactical Elo</span>
+                </div>
+              ) : gameOverModal.isUserWin ? (
+                <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500/20 to-amber-500/10 border-2 border-emerald-400/70 text-emerald-300 font-extrabold text-sm shadow-[0_0_20px_rgba(16,185,129,0.3)] animate-pulse">
+                  <TrendingUp className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
+                  <span>+25 Tactical Elo (Career Updated)</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-rose-500/20 to-orange-500/10 border-2 border-rose-500/70 text-rose-300 font-extrabold text-sm shadow-[0_0_20px_rgba(244,63,94,0.3)]">
+                  <TrendingDown className="w-4 h-4 text-rose-400 stroke-[2.5]" />
+                  <span>-25 Tactical Elo (Career Deducted)</span>
+                </div>
+              )}
+            </div>
+
+            {/* Random Loser Motivational Quote */}
+            {!gameOverModal.isUserWin && !gameOverModal.isDraw && gameOverModal.quote && (
+              <div className="p-3.5 rounded-2xl bg-black/60 border border-amber-500/30 text-left space-y-1.5 shadow-inner">
+                <div className="flex items-center gap-1.5 text-amber-400 text-[10px] font-black uppercase tracking-wider">
+                  <Quote className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>Grandmaster Wisdom</span>
+                </div>
+                <p className="text-xs text-slate-200 italic leading-snug">
+                  "{gameOverModal.quote.text}"
+                </p>
+                <p className="text-[10px] text-amber-400/90 font-bold text-right">
+                  — {gameOverModal.quote.author}
+                </p>
+              </div>
+            )}
 
             {/* Match Stats Pill Bar */}
             <div className="grid grid-cols-3 gap-2.5 p-3 rounded-2xl bg-black/40 border border-slate-800 text-center">

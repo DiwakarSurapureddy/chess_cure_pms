@@ -38,10 +38,17 @@ class ConnectionManager:
         game_id: str,
         message: dict,
     ):
-        connections = self.active_connections.get(game_id, [])
+        connections = list(self.active_connections.get(game_id, []))
+        dead = []
 
         for websocket in connections:
-            await websocket.send_json(message)
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                dead.append(websocket)
+
+        for ws in dead:
+            self.disconnect(game_id, ws)
 
     async def send_to_player(
         self,

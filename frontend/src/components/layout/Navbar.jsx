@@ -152,16 +152,18 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
           />
         </div>
 
-        {/* Decorative Golden Metallic Beveled Background (Positioned behind content so it NEVER clips dropdowns!) */}
-        <div className="absolute inset-0 nav-gold-gradient-border nav-gold-chamfer-outer p-[2.5px] rounded-2xl pointer-events-none shadow-[0_12px_40px_rgba(0,0,0,0.8),0_0_30px_rgba(245,158,11,0.25)]">
-          <div className="w-full h-full nav-gold-chamfer-inner bg-gradient-to-b from-[#111c2e] via-[#09101d] to-[#050811] rounded-[14px]">
-            {/* Ambient Gold Shimmer Lighting Highlights */}
-            <div className="w-full h-full bg-[radial-gradient(ellipse_at_50%_0%,rgba(245,158,11,0.22)_0%,transparent_70%)]" />
+        {/* Top Bar Wrapper with Chamfer Background */}
+        <div className="relative rounded-2xl">
+          {/* Decorative Golden Metallic Beveled Background */}
+          <div className="absolute inset-0 nav-gold-gradient-border nav-gold-chamfer-outer p-[2.5px] rounded-2xl pointer-events-none shadow-[0_12px_40px_rgba(0,0,0,0.8),0_0_30px_rgba(245,158,11,0.25)]">
+            <div className="w-full h-full nav-gold-chamfer-inner bg-gradient-to-b from-[#111c2e] via-[#09101d] to-[#050811] rounded-[14px]">
+              {/* Ambient Gold Shimmer Lighting Highlights */}
+              <div className="w-full h-full bg-[radial-gradient(ellipse_at_50%_0%,rgba(245,158,11,0.22)_0%,transparent_70%)]" />
+            </div>
           </div>
-        </div>
 
-        {/* Interactive Content Container - UNCLIPPED with overflow-visible */}
-        <div className="relative z-20 px-3 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between overflow-visible">
+          {/* Interactive Content Container - UNCLIPPED with overflow-visible */}
+          <div className="relative z-20 px-3 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between overflow-visible">
           
           {/* ================= LEFT SECTION: BRAND & MAIN KING PROJECT LOGO ================= */}
           <div 
@@ -605,10 +607,11 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
             </button>
           </div>
         </div>
+        </div>
 
         {/* ================= MOBILE / RESPONSIVE NAVIGATION DRAWER ================= */}
         {mobileMenuOpen && (
-          <div className="lg:hidden mt-2 p-3 rounded-2xl bg-[#091122] border-2 border-[#d4af37]/50 shadow-2xl space-y-1 animate-in fade-in slide-in-from-top-3 duration-200">
+          <div className="lg:hidden relative z-50 mt-3 p-3.5 rounded-2xl bg-[#091122]/98 backdrop-blur-2xl border-2 border-[#d4af37]/60 shadow-[0_20px_60px_rgba(0,0,0,0.95),0_0_35px_rgba(245,158,11,0.3)] space-y-1.5 animate-in fade-in duration-200">
             <button
               onClick={() => handleNavClick('home')}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${

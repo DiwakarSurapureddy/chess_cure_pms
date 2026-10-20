@@ -86,6 +86,8 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
       ? 'Computer'
       : (activeOnlineMatch?.opponentName || friendName || 'Friend (Player 2)');
 
+    const ratingDelta = resultData.ratingChange || (resultData.result === 'Won' ? '+25' : resultData.result === 'Lost' ? '-25' : '+0');
+
     recordGameResult({
       id: 'match_' + Date.now(),
       opponent: oppName,
@@ -93,7 +95,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
       result: resultData.result,
       method: resultData.method,
       moves: resultData.moves,
-      ratingChange: resultData.result === 'Won' ? '+15' : resultData.result === 'Lost' ? '-10' : '+0',
+      ratingChange: ratingDelta,
       date: 'Just now',
     });
   };

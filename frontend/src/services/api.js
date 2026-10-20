@@ -571,6 +571,28 @@ export const api = {
       clearTimeout(timeoutId);
     }
   },
+  /**
+   * Send a move to an online game (HTTP fallback for real-time move resilience)
+   */
+  async sendGameMove(gameId, fromSquare, toSquare) {
+    if (!gameId || !fromSquare || !toSquare) return null;
+    try {
+      const res = await fetch(`${BASE_URL}/games/${encodeURIComponent(gameId)}/move`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from_square: fromSquare,
+          to_square: toSquare,
+        }),
+      });
+      return await res.json().catch(() => ({}));
+    } catch (e) {
+      console.warn('sendGameMove HTTP fallback warning:', e);
+      return null;
+    }
+  },
 };
 
 export default api;
