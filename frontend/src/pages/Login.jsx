@@ -34,7 +34,7 @@ export default function Login({ onNavigate, onLoginSuccess, initialEmail = '' })
     setIsLoading(true);
     try {
       const res = await login(identifier.trim(), password, rememberMe);
-      setSuccessMessage('Welcome back! Loading your profile...');
+      setSuccessMessage('Welcome back! Logging in...');
       setTimeout(() => {
         if (onLoginSuccess && res?.user) {
           onLoginSuccess(res.user);
@@ -42,7 +42,7 @@ export default function Login({ onNavigate, onLoginSuccess, initialEmail = '' })
         if (onNavigate) {
           onNavigate('home');
         }
-      }, 600);
+      }, 120);
     } catch (err) {
       setError(err.message || 'Login failed. Please verify credentials.');
     } finally {

@@ -179,13 +179,20 @@ def authenticate_user(
     clean_ident = identifier.strip().lower()
     clean_phone = normalize_phone(identifier)
 
-    # Search user by email, username, or normalized mobile number
+    # Fast indexed lookup first (B-tree index on email and username)
     user = db.query(User).filter(
         (User.email == clean_ident) |
-        (User.username.ilike(clean_ident)) |
-        (User.mobile_number == identifier.strip()) |
-        (User.mobile_number == clean_phone)
+        (User.username == identifier.strip()) |
+        (User.username == clean_ident)
     ).first()
+
+    # Fallback to case-insensitive or phone search if direct match was not found
+    if not user:
+        user = db.query(User).filter(
+            (User.username.ilike(clean_ident)) |
+            (User.mobile_number == identifier.strip()) |
+            (User.mobile_number == clean_phone)
+        ).first()
 
     if not user:
         raise ValueError("Invalid email, username, or password.")

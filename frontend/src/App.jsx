@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { SecretChatProvider } from './context/SecretChatContext';
+import { SecretChatProvider, useSecretChat } from './context/SecretChatContext';
 import Navbar from './components/layout/Navbar';
 import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
@@ -360,7 +360,8 @@ function AppContent() {
                           <button
                             type="button"
                             onClick={() => handleChallengeFriendFromModal(friend)}
-                            className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black font-extrabold text-xs border border-amber-500/40 transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                            disabled={Boolean(modalTargetFriend)}
+                            className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-amber-300 hover:text-black font-extrabold text-xs border border-amber-500/40 transition-all flex items-center gap-1 cursor-pointer shrink-0"
                           >
                             <Swords className="w-3 h-3" />
                             <span>Play</span>

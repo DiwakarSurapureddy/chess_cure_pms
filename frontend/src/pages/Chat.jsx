@@ -116,6 +116,19 @@ export default function Chat({
   // Initial selection of friend
   useEffect(() => {
     if (inPlaceFriend) return;
+
+    let pending = null;
+    try { pending = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null'); } catch {}
+    const isPendingActive = pending && pending.expiresAt && new Date(pending.expiresAt).getTime() > Date.now();
+    const pendingId = pending?.id || pending?.playerId;
+
+    // Prioritize active 5-minute online unlocked opponent!
+    if (isPendingActive && pendingId) {
+      setSelectedFriendId(pendingId);
+      setMobileView('chat');
+      return;
+    }
+
     if (!friendsList.length) {
       if (!selectedFriendId) {
         setChatMessages([]);
@@ -127,9 +140,6 @@ export default function Chat({
     if (selectedFriendId && friendsList.some((friend) =>
       friend.id === selectedFriendId || friend.playerId === selectedFriendId
     )) return;
-
-    let pending = null;
-    try { pending = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null'); } catch {}
 
     const preferredFriend = friendsList.find((friend) =>
       [friend.id, friend.playerId].some((id) => String(id) === String(pending?.id || pending?.playerId))
@@ -144,7 +154,15 @@ export default function Chat({
   }, [friendsList, selectedFriendId, inPlaceFriend]);
 
   // Resolve active friend
-  const activeFriend = inPlaceFriend || friendsList.find(
+  const pendingOpponent = (() => {
+    try {
+      const p = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null');
+      if (p && (p.id === selectedFriendId || p.playerId === selectedFriendId)) return p;
+    } catch {}
+    return null;
+  })();
+
+  const activeFriend = inPlaceFriend || pendingOpponent || friendsList.find(
     (f) => f.id === selectedFriendId || f.playerId === selectedFriendId
   ) || (selectedFriendId ? {
     id: selectedFriendId,
@@ -175,12 +193,17 @@ export default function Chat({
         const diffSeconds = expiresAt ? Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)) : (statusRes.timeRemainingSeconds || 0);
 
         setChatStatus((prev) => {
-          // Keep local countdown smooth without jumping back and forth
+          // If we currently have an active local 5-minute unlock that hasn't expired yet,
+          // do NOT let an un-synchronized server false override it!
+          const localHasActiveTime = prev.isUnlocked && prev.expiresAt && new Date(prev.expiresAt).getTime() > Date.now();
+          if (localHasActiveTime && !nextUnlocked) {
+            return prev;
+          }
           const isSameSession = prev.isUnlocked && nextUnlocked && prev.expiresAt === expiresAt;
           return {
-            isUnlocked: nextUnlocked,
+            isUnlocked: nextUnlocked || localHasActiveTime,
             timeRemainingSeconds: isSameSession ? prev.timeRemainingSeconds : diffSeconds,
-            expiresAt: expiresAt,
+            expiresAt: expiresAt || prev.expiresAt,
             unlockReason: statusRes.unlockReason || prev.unlockReason,
           };
         });
@@ -237,25 +260,45 @@ export default function Chat({
     };
   }, [activeFriendParam, token]);
 
+  // Track if countdown was actively running (>0) so we only switch on genuine 5-minute expiry
+  const hadActiveCountdownRef = useRef(false);
+
   // Single monotonic 1-second countdown timer based strictly on expiresAt
   useEffect(() => {
     if (chatStatus.isUnlocked && chatStatus.expiresAt) {
       if (timerCountdownRef.current) clearInterval(timerCountdownRef.current);
 
       const tick = () => {
+        if (!chatStatus.expiresAt) return;
         const expTime = new Date(chatStatus.expiresAt).getTime();
+        if (!expTime || isNaN(expTime)) return;
+
         const now = Date.now();
         const diff = Math.max(0, Math.floor((expTime - now) / 1000));
 
-        if (diff <= 0) {
+        if (diff > 0) {
+          hadActiveCountdownRef.current = true;
+          setChatStatus((prev) => (prev.timeRemainingSeconds === diff ? prev : { ...prev, timeRemainingSeconds: diff }));
+        } else {
+          // Timer reached 0!
           if (timerCountdownRef.current) clearInterval(timerCountdownRef.current);
           setChatStatus((prev) => ({
             ...prev,
             isUnlocked: false,
             timeRemainingSeconds: 0,
           }));
-        } else {
-          setChatStatus((prev) => (prev.timeRemainingSeconds === diff ? prev : { ...prev, timeRemainingSeconds: diff }));
+
+          // ONLY switch back to chessboard if it was actively running down the 5-minute countdown!
+          if (hadActiveCountdownRef.current) {
+            hadActiveCountdownRef.current = false;
+            try { localStorage.removeItem('cc_selected_chat_opponent'); } catch {}
+            try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
+            if (embedded && onCloseInPlace) {
+              onCloseInPlace();
+            } else if (!embedded && onNavigate) {
+              onNavigate('play');
+            }
+          }
         }
       };
 
@@ -401,8 +444,16 @@ export default function Chat({
     return text.includes(query);
   });
 
-  // Filter friends list
-  const filteredFriends = friendsList.filter((f) => {
+  // Filter friends list (includes active unlocked online opponent if any)
+  const displayFriendsList = React.useMemo(() => {
+    const list = [...friendsList];
+    if (pendingOpponent && !list.some((f) => f.id === pendingOpponent.id || f.playerId === pendingOpponent.playerId)) {
+      list.unshift(pendingOpponent);
+    }
+    return list;
+  }, [friendsList, pendingOpponent]);
+
+  const filteredFriends = displayFriendsList.filter((f) => {
     const nameMatch = (f.username || f.name || '').toLowerCase().includes(searchQuery.toLowerCase());
     const idMatch = (f.playerId || '').includes(searchQuery);
     return nameMatch || idMatch;

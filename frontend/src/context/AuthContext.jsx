@@ -92,6 +92,38 @@ export function AuthProvider({ children }) {
   const [friendsList, setFriendsList] = useState([]);
   const [friendNotifications, setFriendNotifications] = useState([]);
 
+  const sanitizeNotifications = (notifs) => {
+    if (!Array.isArray(notifs)) return [];
+    const seenIds = new Set();
+    const seenSenderChallenges = new Set();
+    const sanitized = [];
+    for (const n of notifs) {
+      if (!n || !n.id || seenIds.has(n.id)) continue;
+      seenIds.add(n.id);
+      if (n.type === 'match_challenge') {
+        const senderKey = n.senderId || n.senderPlayerId || n.senderUsername;
+        if (senderKey && seenSenderChallenges.has(senderKey)) {
+          continue; // skip duplicate challenge from same sender
+        }
+        if (senderKey) seenSenderChallenges.add(senderKey);
+      }
+      sanitized.push(n);
+    }
+    return sanitized;
+  };
+
+  const fetchNotificationsOnly = async (authToken = token) => {
+    const curToken = authToken || localStorage.getItem(TOKEN_KEY);
+    if (!curToken || curToken === 'guest_local_token') return;
+    try {
+      const notifRes = await api.getFriendNotifications(curToken).catch(() => ({ count: 0, notifications: [] }));
+      if (notifRes?.notifications) {
+        const cleaned = sanitizeNotifications(notifRes.notifications);
+        setFriendNotifications((prev) => (sameRecords(prev, cleaned) ? prev : cleaned));
+      }
+    } catch (e) {}
+  };
+
   const fetchFriendsAndNotifications = async (authToken = token) => {
     const curToken = authToken || localStorage.getItem(TOKEN_KEY);
     if (!curToken || curToken === 'guest_local_token') return;
@@ -101,9 +133,8 @@ export function AuthProvider({ children }) {
         api.getFriendsList(curToken).catch(() => ({ count: 0, friends: [] }))
       ]);
       if (notifRes?.notifications) {
-        setFriendNotifications((prev) => (
-          sameRecords(prev, notifRes.notifications) ? prev : notifRes.notifications
-        ));
+        const cleaned = sanitizeNotifications(notifRes.notifications);
+        setFriendNotifications((prev) => (sameRecords(prev, cleaned) ? prev : cleaned));
       }
       if (friendsRes?.friends) {
         setFriendsList((prev) => (
@@ -117,10 +148,13 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (token && token !== 'guest_local_token') {
+      // Initial load: fetch both friends and notifications
       fetchFriendsAndNotifications(token);
+
+      // Lightweight polling: only poll notifications every 4 seconds (reduces DB load by 75%)
       const interval = setInterval(() => {
-        fetchFriendsAndNotifications(token);
-      }, 2000);
+        fetchNotificationsOnly(token);
+      }, 4000);
 
       const handleFocus = () => fetchFriendsAndNotifications(token);
       window.addEventListener('focus', handleFocus);
@@ -146,8 +180,13 @@ export function AuthProvider({ children }) {
   const respondFriendRequest = async (requestId, action) => {
     const curToken = token || localStorage.getItem(TOKEN_KEY);
     if (!curToken) throw new Error('Authentication required.');
+
+    // Optimistically remove notification immediately for zero latency feel
+    setFriendNotifications((prev) => prev.filter((n) => n.id !== requestId));
+
     const res = await api.respondFriendRequest(curToken, { request_id: requestId, action });
-    await fetchFriendsAndNotifications(curToken);
+    // Refresh in background without blocking
+    fetchFriendsAndNotifications(curToken).catch(() => {});
     return res;
   };
 
@@ -163,8 +202,13 @@ export function AuthProvider({ children }) {
   const respondMatchChallenge = async (challengeId, action) => {
     const curToken = token || localStorage.getItem(TOKEN_KEY);
     if (!curToken) throw new Error('Authentication required.');
+
+    // Optimistically remove challenge notification immediately for zero latency feel
+    setFriendNotifications((prev) => prev.filter((n) => n.id !== challengeId));
+
     const res = await api.respondMatchChallenge(curToken, { challenge_id: challengeId, action });
-    await fetchFriendsAndNotifications(curToken);
+    // Refresh notifications in background without blocking caller
+    fetchNotificationsOnly(curToken).catch(() => {});
     return res;
   };
 
@@ -176,9 +220,11 @@ export function AuthProvider({ children }) {
 
   const cancelActiveOnlineMatch = async (reason = 'board_changed') => {
     if (activeOnlineMatch?.gameId) {
+      const gId = activeOnlineMatch.gameId;
+      api.cancelGame(gId, reason).catch(() => {});
       const curToken = token || localStorage.getItem(TOKEN_KEY);
       if (curToken && curToken !== 'guest_local_token') {
-        await api.cancelMatchChallenge(curToken, { gameId: activeOnlineMatch.gameId, reason }).catch(() => {});
+        await api.cancelMatchChallenge(curToken, { gameId: gId, reason }).catch(() => {});
       }
     }
     setActiveOnlineMatch(null);
@@ -298,35 +344,39 @@ export function AuthProvider({ children }) {
 
       if (res?.token && res?.user) {
         setToken(res.token);
+        setUser(res.user);
         setIsAuthenticated(true);
         localStorage.setItem(TOKEN_KEY, res.token);
+        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
+        localStorage.setItem('cc_auth_user', JSON.stringify(res.user));
 
-        // Fetch real-time DB games, stats & preferences for this account
-        try {
-          const [games, stats, prefs] = await Promise.all([
-            api.getGameHistory(res.token).catch(() => []),
-            api.getProfileStats(res.token).catch(() => null),
-            api.getPreferences(res.token).catch(() => null),
-          ]);
-
-          setCareerGames(Array.isArray(games) ? games : []);
+        // Fetch career games & stats in background without blocking sign-in
+        Promise.all([
+          api.getGameHistory(res.token).catch(() => []),
+          api.getProfileStats(res.token).catch(() => null),
+          api.getPreferences(res.token).catch(() => null),
+        ]).then(([games, stats, prefs]) => {
+          if (Array.isArray(games)) setCareerGames(games);
           if (prefs) setPreferences(prefs);
+          if (stats) {
+            setUser((prev) => {
+              const updated = {
+                ...(prev || res.user),
+                wins: stats?.wins ?? prev?.wins ?? res.user.wins ?? 0,
+                losses: stats?.losses ?? prev?.losses ?? res.user.losses ?? 0,
+                draws: stats?.draws ?? prev?.draws ?? res.user.draws ?? 0,
+                rating: stats?.rating ?? prev?.rating ?? res.user.rating ?? 1200,
+              };
+              try {
+                localStorage.setItem(USER_KEY, JSON.stringify(updated));
+                localStorage.setItem('cc_auth_user', JSON.stringify(updated));
+              } catch (e) {}
+              return updated;
+            });
+          }
+        }).catch(() => {});
 
-          const syncedUser = {
-            ...res.user,
-            wins: stats?.wins ?? res.user.wins ?? 0,
-            losses: stats?.losses ?? res.user.losses ?? 0,
-            draws: stats?.draws ?? res.user.draws ?? 0,
-            rating: stats?.rating ?? res.user.rating ?? 1200,
-          };
-          setUser(syncedUser);
-          localStorage.setItem(USER_KEY, JSON.stringify(syncedUser));
-          return { success: true, user: syncedUser };
-        } catch (ignored) {
-          setUser(res.user);
-          setCareerGames([]);
-          return { success: true, user: res.user };
-        }
+        return { success: true, user: res.user };
       }
       throw new Error(res?.error || 'Invalid credentials.');
     } catch (err) {

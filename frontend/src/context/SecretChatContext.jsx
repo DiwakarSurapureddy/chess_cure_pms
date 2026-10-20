@@ -65,6 +65,7 @@ export function SecretChatProvider({ children }) {
           }));
           try {
             localStorage.removeItem(STORAGE_SESSION_KEY);
+            localStorage.removeItem('cc_selected_chat_opponent');
           } catch {}
         } else {
           setSession((prev) => (prev.timeRemaining === diff ? prev : { ...prev, timeRemaining: diff }));

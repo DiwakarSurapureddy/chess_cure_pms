@@ -56,23 +56,24 @@ def get_chat_status(
     target_friend = resolve_friend_user(db, friend_id)
 
     is_fr = chat_service.is_friend(db, current_user.id, target_friend.id)
-    if not is_fr:
+    session = chat_service.get_or_create_unlock_session(db, current_user.id, target_friend.id)
+    remaining = session.get_remaining_seconds()
+    is_unlocked = bool(session.is_unlocked and remaining > 0)
+
+    if not is_fr and not is_unlocked:
         return {
             "success": True,
             "isFriend": False,
             "isUnlocked": False,
             "timeRemainingSeconds": 0,
-            "message": "You must be accepted friends to chat.",
+            "message": "Chat is locked. Capture a piece within first 5 moves to unlock.",
             "friend": target_friend.to_dict(),
         }
 
-    session = chat_service.get_or_create_unlock_session(db, current_user.id, target_friend.id)
-    remaining = session.get_remaining_seconds()
-
     return {
         "success": True,
-        "isFriend": True,
-        "isUnlocked": session.is_unlocked and remaining > 0,
+        "isFriend": is_fr,
+        "isUnlocked": is_unlocked,
         "timeRemainingSeconds": remaining,
         "expiresAt": session.expires_at.isoformat() if session.expires_at else None,
         "unlockedAt": session.unlocked_at.isoformat() if session.unlocked_at else None,
@@ -90,22 +91,26 @@ def get_chat_messages(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Retrieves message history between current user and accepted friend."""
+    """Retrieves message history between current user and accepted friend or online opponent during unlock."""
     target_friend = resolve_friend_user(db, friend_id)
 
-    if not chat_service.is_friend(db, current_user.id, target_friend.id):
+    is_fr = chat_service.is_friend(db, current_user.id, target_friend.id)
+    session = chat_service.get_or_create_unlock_session(db, current_user.id, target_friend.id)
+    remaining = session.get_remaining_seconds()
+    is_unlocked = bool(session.is_unlocked and remaining > 0)
+
+    if not is_fr and not is_unlocked:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Messaging allowed only between accepted friends."
+            detail="Messaging allowed between friends or during an active 5-minute unlock."
         )
 
     messages = chat_service.get_messages(db, current_user.id, target_friend.id)
-    session = chat_service.get_or_create_unlock_session(db, current_user.id, target_friend.id)
 
     return {
         "success": True,
-        "isUnlocked": session.is_unlocked and session.get_remaining_seconds() > 0,
-        "timeRemainingSeconds": session.get_remaining_seconds(),
+        "isUnlocked": is_unlocked,
+        "timeRemainingSeconds": remaining,
         "messages": [m.to_dict() for m in messages],
     }
 
@@ -117,8 +122,19 @@ def send_chat_message(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Sends a chat message to an accepted friend if chat is unlocked and timer active."""
+    """Sends a chat message to a friend or game opponent if chat is unlocked and timer active."""
     target_friend = resolve_friend_user(db, friend_id)
+
+    is_fr = chat_service.is_friend(db, current_user.id, target_friend.id)
+    session = chat_service.get_or_create_unlock_session(db, current_user.id, target_friend.id)
+    remaining = session.get_remaining_seconds()
+    is_unlocked = bool(session.is_unlocked and remaining > 0)
+
+    if not is_fr and not is_unlocked:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Messaging allowed between friends or during an active 5-minute unlock."
+        )
 
     msg = chat_service.send_message(
         db=db,
@@ -128,12 +144,10 @@ def send_chat_message(
         game_id=payload.game_id
     )
 
-    session = chat_service.get_or_create_unlock_session(db, current_user.id, target_friend.id)
-
     return {
         "success": True,
         "message": msg.to_dict(),
-        "timeRemainingSeconds": session.get_remaining_seconds(),
+        "timeRemainingSeconds": remaining,
     }
 
 
@@ -147,10 +161,12 @@ def unlock_chat_session(
     """Unlocks chat between two players for 5 minutes after a legal piece capture."""
     target_friend = resolve_friend_user(db, friend_id)
 
-    if not chat_service.is_friend(db, current_user.id, target_friend.id):
+    is_fr = chat_service.is_friend(db, current_user.id, target_friend.id)
+    has_game = bool(payload.game_id)
+    if not is_fr and not has_game:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You must be accepted friends to unlock chat."
+            detail="You must be accepted friends or in an active game to unlock chat."
         )
 
     reason = payload.reason or "Opponent piece captured within first 5 moves"

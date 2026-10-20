@@ -667,7 +667,7 @@ export default function ChessBoard({
 
   // Resign match
   const handleResign = () => {
-    if (chess.isGameOver()) return;
+    if (gameOverModal.isOpen) return;
 
     let winnerTitle = 'YOU LOST THE GAME';
     let winnerName = '';
@@ -684,12 +684,16 @@ export default function ChessBoard({
       winnerName = oppName;
       winnerSubtitle = `You resigned the match against ${oppName}. Better luck next time!`;
 
-      // Notify server and opponent via WebSocket
+      // Notify server and opponent via WebSocket & HTTP fallback
       if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
         socketRef.current.send(JSON.stringify({
           action: 'resign',
           player: playerColor,
         }));
+      }
+      const effectiveGameId = onlineGameId || activeOnlineMatch?.gameId;
+      if (effectiveGameId) {
+        api.resignGame(effectiveGameId, playerColor).catch(() => {});
       }
     } else {
       const opposingColor = chess.turn() === 'w' ? 'b' : 'w';
@@ -1326,10 +1330,12 @@ export default function ChessBoard({
 
           {/* Button 5: RESIGN */}
           <button
+            type="button"
             onClick={handleResign}
-            disabled={isAiThinking || chess.isGameOver()}
-            className={`flex flex-col items-center gap-1 group focus:outline-none ${isAiThinking || chess.isGameOver() ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
+            disabled={gameOverModal.isOpen}
+            className={`flex flex-col items-center gap-1 group focus:outline-none cursor-pointer ${
+              gameOverModal.isOpen ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'hover:scale-105 active:scale-95'
+            }`}
             title="Resign Match"
           >
             <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-b from-[#881337] via-[#4c0519] to-[#27020d] p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.6)] group-hover:scale-105 transition-transform">
@@ -1449,13 +1455,25 @@ export default function ChessBoard({
         </div>
 
         {/* Bottom Fast Action */}
-        <div className="pt-3 border-t border-slate-800/80">
+        <div className="pt-3 border-t border-slate-800/80 flex items-center gap-2">
           <button
+            type="button"
             onClick={() => resetGame(playerColor)}
-            className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors border border-slate-700"
+            className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors border border-slate-700 cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-            <span>Reset Position</span>
+            <span>Reset</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleResign}
+            disabled={gameOverModal.isOpen}
+            className={`flex-1 py-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 hover:text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+              gameOverModal.isOpen ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''
+            }`}
+          >
+            <Flag className="w-3.5 h-3.5 text-rose-400" />
+            <span>Resign</span>
           </button>
         </div>
       </div>

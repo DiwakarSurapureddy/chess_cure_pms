@@ -594,11 +594,12 @@ export default function Profile({ onNavigate }) {
                 <button
                   type="button"
                   onClick={() => handleChallengePlayer(friend)}
-                  className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-black font-bold text-xs border border-amber-500/40 transition-all flex items-center gap-1 cursor-pointer shrink-0"
+                  disabled={challengeStatus === 'sending' || challengeStatus === 'waiting'}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-amber-300 hover:text-black font-bold text-xs border border-amber-500/40 transition-all flex items-center gap-1 cursor-pointer shrink-0"
                   title="Challenge Friend to Match"
                 >
                   <Swords className="w-3.5 h-3.5" />
-                  <span>Play</span>
+                  <span>{challengingFriend?.playerId === friend.playerId && challengeStatus === 'sending' ? 'Sending...' : 'Play'}</span>
                 </button>
               </div>
             ))}

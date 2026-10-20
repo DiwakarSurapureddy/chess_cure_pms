@@ -593,6 +593,44 @@ export const api = {
       return null;
     }
   },
+  /**
+   * Resign an online game
+   */
+  async resignGame(gameId, player = 'w') {
+    if (!gameId) return null;
+    try {
+      const res = await fetch(`${BASE_URL}/games/${encodeURIComponent(gameId)}/resign`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ player }),
+      });
+      return await res.json().catch(() => ({}));
+    } catch (e) {
+      console.warn('resignGame error:', e);
+      return null;
+    }
+  },
+  /**
+   * Cancel an online game
+   */
+  async cancelGame(gameId, reason = 'player_cancelled') {
+    if (!gameId) return null;
+    try {
+      const res = await fetch(`${BASE_URL}/games/${encodeURIComponent(gameId)}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reason }),
+      });
+      return await res.json().catch(() => ({}));
+    } catch (e) {
+      console.warn('cancelGame error:', e);
+      return null;
+    }
+  },
 };
 
 export default api;

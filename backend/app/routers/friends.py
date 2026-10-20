@@ -1,4 +1,5 @@
 import time
+from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -124,7 +125,7 @@ def get_friend_notifications(
         .all()
     )
 
-    pending_challenges = (
+    pending_challenges_raw = (
         db.query(MatchChallenge)
         .filter(
             MatchChallenge.receiver_id == current_user.id,
@@ -133,6 +134,26 @@ def get_friend_notifications(
         .order_by(desc(MatchChallenge.created_at))
         .all()
     )
+
+    # Deduplicate pending challenges by sender_id: only show the latest active challenge per friend
+    now_utc = datetime.now(timezone.utc)
+    seen_senders = set()
+    pending_challenges = []
+    for c in pending_challenges_raw:
+        # Auto-expire challenges older than 15 minutes
+        if c.created_at:
+            age_seconds = (now_utc - c.created_at.replace(tzinfo=timezone.utc if c.created_at.tzinfo is None else None)).total_seconds()
+            if age_seconds > 900:  # 15 minutes
+                c.status = "expired"
+                continue
+
+        if c.sender_id in seen_senders:
+            c.status = "superseded"
+            continue
+        seen_senders.add(c.sender_id)
+        pending_challenges.append(c)
+
+    db.commit()
 
     all_notifications = [r.to_dict() for r in pending_friends] + [c.to_dict() for c in pending_challenges]
     all_notifications.sort(key=lambda x: x.get("createdAt") or "", reverse=True)
@@ -259,6 +280,13 @@ def send_match_challenge(
         db=db,
     )
     game_id = game.game_id
+
+    # Cancel / supersede any older pending challenges between this sender and receiver
+    db.query(MatchChallenge).filter(
+        MatchChallenge.sender_id == current_user.id,
+        MatchChallenge.receiver_id == target_user.id,
+        MatchChallenge.status == "pending"
+    ).update({"status": "superseded"}, synchronize_session=False)
 
     # Create challenge invitation record
     challenge = MatchChallenge(

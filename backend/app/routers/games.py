@@ -1,4 +1,6 @@
 from datetime import datetime, UTC
+from typing import Optional
+from pydantic import BaseModel
 from fastapi import (
     APIRouter,
     Depends,
@@ -267,6 +269,66 @@ def delete_game(
         "success": True,
         "message": "Game deleted successfully",
     }
+
+
+class ResignRequest(BaseModel):
+    player: Optional[str] = "w"
+
+
+class CancelGameRequest(BaseModel):
+    reason: Optional[str] = "player_cancelled"
+
+
+@router.post("/{game_id}/resign")
+async def http_resign_game(
+    game_id: str,
+    payload: ResignRequest,
+    db: Session = Depends(get_db),
+):
+    current_game = game_service.get_game(game_id, db)
+    if not current_game:
+        return {"success": True, "message": "Game already concluded or not found."}
+
+    resigning_player = payload.player or "w"
+    current_game.status = "completed"
+    current_game.result = "resignation"
+    winner_name = current_game.player2 if resigning_player == "w" else current_game.player1
+    current_game.winner = winner_name
+    game_service.save_game(current_game, db)
+
+    await connection_manager.send_to_game(
+        game_id,
+        {
+            "type": "resignation",
+            "resigning_player": resigning_player,
+            "winner": winner_name,
+            "message": f"Player ({'White' if resigning_player == 'w' else 'Black'}) resigned the match.",
+        }
+    )
+    return {"success": True, "winner": winner_name, "message": "Resignation recorded."}
+
+
+@router.post("/{game_id}/cancel")
+async def http_cancel_game(
+    game_id: str,
+    payload: CancelGameRequest,
+    db: Session = Depends(get_db),
+):
+    current_game = game_service.get_game(game_id, db)
+    if current_game:
+        current_game.status = "cancelled"
+        current_game.result = "cancelled"
+        game_service.save_game(current_game, db)
+
+    await connection_manager.send_to_game(
+        game_id,
+        {
+            "type": "cancelled",
+            "reason": payload.reason or "player_cancelled",
+            "message": "The online match was cancelled.",
+        }
+    )
+    return {"success": True, "message": "Game cancelled."}
 
 
 @router.websocket("/{game_id}/ws")

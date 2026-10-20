@@ -90,6 +90,7 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
         if (!response.gameId) {
           throw new Error('The challenge was accepted, but no game was returned.');
         }
+        setNotifOpen(false);
         setActiveOnlineMatch({
           gameId: response.gameId,
           opponentPlayerId: notification.senderPlayerId,

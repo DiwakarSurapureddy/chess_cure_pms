@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ChessBoard from '../components/chess/ChessBoard';
 import Chat from './Chat';
 import { useAuth } from '../context/AuthContext';
+import { useSecretChat } from '../context/SecretChatContext';
 import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X, Crown, ArrowLeft } from 'lucide-react';
 
 export default function Dashboard({ initialMode = 'computer', onNavigate }) {
@@ -14,6 +15,41 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   const [cancelPrompt, setCancelPrompt] = useState(null); // { targetMode, title, message }
   const [inPlaceChatFriend, setInPlaceChatFriend] = useState(null);
   const [activeBoardView, setActiveBoardView] = useState('board'); // 'board' | 'chat'
+  const hasUserClosedInPlaceRef = useRef(false);
+  const chatAutoReturnTimerRef = useRef(null);
+
+  // Secret chat countdown timer from context (5-minute countdown continues everywhere)
+  const { isChatUnlocked, timeRemaining, formattedTime } = useSecretChat ? useSecretChat() : { isChatUnlocked: false, timeRemaining: 0, formattedTime: '00:00' };
+
+  // Clean up auto-return timer on unmount
+  useEffect(() => {
+    return () => {
+      if (chatAutoReturnTimerRef.current) {
+        clearTimeout(chatAutoReturnTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Check if an existing 5-minute session is already running (e.g. across page refresh)
+  useEffect(() => {
+    try {
+      const storedExpiry = localStorage.getItem('cc_chat_expires_at');
+      if (storedExpiry) {
+        const exp = parseInt(storedExpiry, 10);
+        const rem = exp - Date.now();
+        if (rem > 0) {
+          if (chatAutoReturnTimerRef.current) clearTimeout(chatAutoReturnTimerRef.current);
+          chatAutoReturnTimerRef.current = setTimeout(() => {
+            setActiveBoardView('board');
+            hasUserClosedInPlaceRef.current = true;
+            try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
+          }, rem);
+        } else {
+          try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
+        }
+      }
+    } catch {}
+  }, []);
 
   useEffect(() => {
     if (activeOnlineMatch) {
@@ -40,6 +76,33 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
     if (targetMode === 'computer') setSelectedSide('w');
   };
 
+  const performExitLiveMatch = async () => {
+    setCancelPrompt(null);
+    const gId = activeOnlineMatch?.gameId;
+    if (gId) {
+      api.cancelGame(gId, 'player_exited').catch(() => {});
+      const curToken = token || localStorage.getItem('chess_access_token');
+      if (curToken && curToken !== 'guest_local_token') {
+        api.cancelMatchChallenge(curToken, { gameId: gId, reason: 'player_exited' }).catch(() => {});
+      }
+    }
+    if (cancelActiveOnlineMatch) {
+      await cancelActiveOnlineMatch('player_exited');
+    } else {
+      setActiveOnlineMatch(null);
+    }
+    setInPlaceChatFriend(null);
+    setActiveBoardView('board');
+    if (chatAutoReturnTimerRef.current) {
+      clearTimeout(chatAutoReturnTimerRef.current);
+      chatAutoReturnTimerRef.current = null;
+    }
+    try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
+    try { localStorage.removeItem('cc_selected_chat_opponent'); } catch {}
+    setMode('computer');
+    setSelectedSide('w');
+  };
+
   const handleConfirmCancelMatch = async () => {
     const target = cancelPrompt?.targetMode || 'computer';
     setCancelPrompt(null);
@@ -48,17 +111,19 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
     } else {
       setActiveOnlineMatch(null);
     }
+    setInPlaceChatFriend(null);
+    setActiveBoardView('board');
+    if (chatAutoReturnTimerRef.current) {
+      clearTimeout(chatAutoReturnTimerRef.current);
+      chatAutoReturnTimerRef.current = null;
+    }
+    try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
+    try { localStorage.removeItem('cc_selected_chat_opponent'); } catch {}
     setMode(target);
     if (target === 'computer') setSelectedSide('w');
   };
 
-  const handleExitLiveMatch = async () => {
-    setCancelPrompt({
-      targetMode: 'computer',
-      title: 'Exit Live Online Match?',
-      message: `Leaving the live match against ${activeOnlineMatch?.opponentName || 'opponent'} will cancel the game. Are you sure you want to exit?`
-    });
-  };
+  const handleExitLiveMatch = performExitLiveMatch;
 
   const handleOnlineMatchCancelled = () => {
     if (cancelActiveOnlineMatch) {
@@ -76,9 +141,33 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
     setSecretUnlocked(true);
   };
 
+  const handleReturnToChessboard = () => {
+    hasUserClosedInPlaceRef.current = true;
+    setActiveBoardView('board');
+  };
+
   const handleChatUnlockInPlace = (targetFriend) => {
     setInPlaceChatFriend(targetFriend);
+    hasUserClosedInPlaceRef.current = false;
     setActiveBoardView('chat');
+
+    // 5-minute (300 seconds) countdown:
+    // ONLY when 5 full minutes elapse, automatically switch back to the chessboard!
+    if (chatAutoReturnTimerRef.current) {
+      clearTimeout(chatAutoReturnTimerRef.current);
+    }
+    const fiveMinutesMs = 300 * 1000;
+    const expiresAt = Date.now() + fiveMinutesMs;
+    try {
+      localStorage.setItem('cc_chat_expires_at', expiresAt.toString());
+    } catch {}
+
+    chatAutoReturnTimerRef.current = setTimeout(() => {
+      // 5 Minutes Complete: Automatically return to chessboard
+      setActiveBoardView('board');
+      hasUserClosedInPlaceRef.current = true;
+      try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
+    }, fiveMinutesMs);
   };
 
   const handleGameOver = (resultData) => {
@@ -126,7 +215,8 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
           </div>
 
           <button
-            onClick={handleSwitchToComputer}
+            type="button"
+            onClick={handleExitLiveMatch}
             className="py-1.5 px-3.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 text-xs font-bold transition-colors cursor-pointer"
           >
             Exit Live Match
@@ -256,7 +346,14 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
         {/* In-Place Chat Toggle Button (when chat has been unlocked for a friend) */}
         {inPlaceChatFriend && (
           <button
-            onClick={() => setActiveBoardView((prev) => (prev === 'chat' ? 'board' : 'chat'))}
+            onClick={() => {
+              if (activeBoardView === 'chat') {
+                handleReturnToChessboard();
+              } else {
+                hasUserClosedInPlaceRef.current = false;
+                setActiveBoardView('chat');
+              }
+            }}
             className={`py-1.5 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md cursor-pointer ${
               activeBoardView === 'chat'
                 ? 'bg-amber-500 text-black border border-amber-400'
@@ -264,7 +361,11 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
             }`}
           >
             <MessageSquare className="w-3.5 h-3.5" />
-            <span>{activeBoardView === 'chat' ? 'View Chessboard' : `Chat with ${inPlaceChatFriend.name || 'Friend'}`}</span>
+            <span>
+              {activeBoardView === 'chat'
+                ? `View Chessboard ${isChatUnlocked ? `(${formattedTime})` : ''}`
+                : `Chat with ${inPlaceChatFriend.name || inPlaceChatFriend.username || 'Friend'} ${isChatUnlocked ? `(${formattedTime})` : ''}`}
+            </span>
           </button>
         )}
 
@@ -275,17 +376,18 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
             className="py-1.5 px-3 rounded-xl bg-amber-500/20 border border-amber-400 text-amber-300 text-xs font-bold flex items-center gap-1.5 animate-bounce shadow-lg cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Open Chat</span>
+            <span>Open Chat {isChatUnlocked ? `(${formattedTime})` : ''}</span>
           </button>
         )}
       </div>
 
-      {/* Main Content Area: Renders either the ChessBoard or in-place WhatsApp Friend Chat */}
-      {activeBoardView === 'chat' && inPlaceChatFriend ? (
-        <div className="w-full rounded-3xl overflow-hidden border-2 border-amber-500/40 shadow-2xl bg-[#090e18] animate-in fade-in">
+      {/* Main Content Area: Renders in-place WhatsApp Friend Chat or ChessBoard without unmounting */}
+      {inPlaceChatFriend && (
+        <div className={`w-full rounded-3xl overflow-hidden border-2 border-amber-500/40 shadow-2xl bg-[#090e18] animate-in fade-in ${activeBoardView === 'chat' ? 'block' : 'hidden'}`}>
           <div className="px-4 py-2.5 bg-[#0b1424] border-b border-slate-800 flex items-center justify-between gap-3">
             <button
-              onClick={() => setActiveBoardView('board')}
+              type="button"
+              onClick={handleReturnToChessboard}
               className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
@@ -296,8 +398,14 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
               <span className="text-xs font-bold text-white">
                 Chat with {inPlaceChatFriend.name || inPlaceChatFriend.username} (In Place of Board)
               </span>
+              {isChatUnlocked && (
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
+                  ⏱️ {formattedTime}
+                </span>
+              )}
             </div>
             <button
+              type="button"
               onClick={() => onNavigate && onNavigate('chat')}
               className="text-xs text-amber-400/90 hover:text-amber-300 font-bold hidden sm:flex items-center gap-1 transition-colors"
             >
@@ -308,11 +416,14 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
           <Chat
             embedded={true}
             inPlaceFriend={inPlaceChatFriend}
-            onCloseInPlace={() => setActiveBoardView('board')}
+            onCloseInPlace={handleReturnToChessboard}
             onNavigate={onNavigate}
           />
         </div>
-      ) : (
+      )}
+
+      {/* ChessBoard Container: Stays mounted continuously so WebSocket never reconnects or resets! */}
+      <div className={activeBoardView === 'board' ? 'w-full' : 'hidden'}>
         <ChessBoard
           key={`${mode}-${selectedSide}-${friendName}-${activeOnlineMatch?.gameId || 'offline'}`}
           gameMode={mode}
@@ -327,7 +438,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
           onOnlineMatchCancelled={handleOnlineMatchCancelled}
           onChatUnlockInPlace={handleChatUnlockInPlace}
         />
-      )}
+      </div>
 
       {/* Cancel Match Confirmation Modal on Board Change */}
       {cancelPrompt && (
