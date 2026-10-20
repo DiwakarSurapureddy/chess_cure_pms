@@ -9,7 +9,6 @@ import {
   Swords, 
   User, 
   Bot, 
-  Sparkles, 
   Volume2, 
   VolumeX, 
   Crown, 
@@ -25,6 +24,7 @@ import confetti from 'canvas-confetti';
 import { useAuth } from '../../context/AuthContext';
 import { useSecretChat } from '../../context/SecretChatContext';
 import { playChessSound } from '../../utils/sound';
+import { getSmartEngineMove } from '../../utils/chessEngine';
 import api from '../../services/api';
 
 export { playChessSound };
@@ -87,7 +87,6 @@ export default function ChessBoard({
   const [history, setHistory] = useState([]);
   const [gameStatus, setGameStatus] = useState('In Progress');
   const [isAiThinking, setIsAiThinking] = useState(false);
-  const [secretDiscovered, setSecretDiscovered] = useState(false);
   const [hintSquare, setHintSquare] = useState(null);
   const [hintCount, setHintCount] = useState(3);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -691,66 +690,46 @@ export default function ChessBoard({
     }
   };
 
-  // AI Move logic - integrates with Backend Chess Engine with smooth fallback
-  const makeAiMove = async (currentChess = chess) => {
+  // AI Move logic - Powered by Built-in Smart Minimax Engine (Alpha-Beta Pruning & PST)
+  const makeAiMove = (currentChess = chess) => {
     // Strictly disable AI move if not in vs Computer mode!
     if (gameMode !== 'computer' || currentChess.isGameOver()) return;
     setIsAiThinking(true);
 
-    let backendReplied = false;
+    if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
 
-    // 1. Attempt to query Backend Chess Engine (/api/move)
-    if (lastPlayerMoveRef.current) {
-      try {
-        const { from, to } = lastPlayerMoveRef.current;
-        const res = await api.makeEngineMove({ from_square: from, to_square: to });
-        if (res && res.computer_move && typeof res.computer_move === 'string' && res.computer_move.length >= 4) {
-          const cFrom = res.computer_move.slice(0, 2);
-          const cTo = res.computer_move.slice(2, 4);
-          const cPromotion = res.computer_move.length > 4 ? res.computer_move[4] : 'q';
-          const moveRes = currentChess.move({ from: cFrom, to: cTo, promotion: cPromotion });
-          if (moveRes) {
-            backendReplied = true;
-            setLastMove({ from: moveRes.from, to: moveRes.to });
-            if (soundEnabled) playChessSound(moveRes.captured ? 'capture' : 'move');
-            refreshBoard();
-            setIsAiThinking(false);
-            return;
-          }
-        }
-      } catch (err) {
-        // Fallback to local evaluation smoothly
+    // Natural human-like thinking delay based on level
+    const thinkDelay = aiDifficulty === 'master' ? 450 : aiDifficulty === 'intermediate' ? 350 : 250;
+
+    aiTimeoutRef.current = setTimeout(() => {
+      if (currentChess.isGameOver()) {
+        setIsAiThinking(false);
+        return;
       }
-    }
 
-    // 2. Local AI fallback (instant & reliable)
-    if (!backendReplied) {
-      if (aiTimeoutRef.current) clearTimeout(aiTimeoutRef.current);
-      aiTimeoutRef.current = setTimeout(() => {
-        const moves = currentChess.moves({ verbose: true });
-        if (moves.length === 0) {
-          setIsAiThinking(false);
-          return;
-        }
+      // Calculate high-performance smart move matching beginner, intermediate, or master
+      const bestMove = getSmartEngineMove(currentChess, aiDifficulty);
 
-        let chosenMove = moves[Math.floor(Math.random() * moves.length)];
-        if (aiDifficulty === 'intermediate' || aiDifficulty === 'master') {
-          const captures = moves.filter((m) => m.captured || m.san.includes('+'));
-          if (captures.length > 0) {
-            chosenMove = captures[Math.floor(Math.random() * captures.length)];
-          }
-        }
+      if (bestMove) {
+        const moveRes = currentChess.move({
+          from: bestMove.from,
+          to: bestMove.to,
+          promotion: bestMove.promotion || 'q'
+        });
 
-        const moveRes = currentChess.move(chosenMove);
         if (moveRes) {
           setLastMove({ from: moveRes.from, to: moveRes.to });
           if (soundEnabled) playChessSound(moveRes.captured ? 'capture' : 'move');
         }
-        refreshBoard();
-        setIsAiThinking(false);
-      }, 500);
-    }
+      }
+
+      refreshBoard();
+      setIsAiThinking(false);
+    }, thinkDelay);
   };
+
+  // Side selection closes after each player has played 5 moves (5 full moves / 10 plies)
+  const isSideSelectionClosed = Math.floor(history.length / 2) >= 5;
 
   // Reset Game with specific side
   const resetGame = (newSide = playerColor) => {
@@ -762,8 +741,8 @@ export default function ChessBoard({
     setLegalMoves([]);
     setLastMove(null);
     setHintSquare(null);
+    setHintCount(3);
     setIsAiThinking(false);
-    setSecretDiscovered(false);
     setGameOverModal((prev) => ({ ...prev, isOpen: false }));
     setPlayerColor(newSide);
     refreshBoard();
@@ -802,6 +781,7 @@ export default function ChessBoard({
   const handleSelectSide = (side) => {
     setShowSideModal(false);
     if (gameMode === 'online') return; // Color is fixed for online match
+    if (isSideSelectionClosed) return; // Locked after 5 moves each
     if (side !== playerColor || chess.history().length > 0) {
       resetGame(side);
     }
@@ -840,24 +820,22 @@ export default function ChessBoard({
     refreshBoard();
   };
 
-  // Hint generator
+  // Smart Tactical Hint generator - Evaluates the board with Grandmaster Minimax engine
   const handleGetHint = () => {
     if (gameMode === 'online') return; // Hints disabled in competitive online matches
-    if (chess.isGameOver() || isAiThinking) return;
-    const moves = chess.moves({ verbose: true });
-    if (moves.length === 0) return;
+    if (chess.isGameOver() || isAiThinking || hintCount <= 0) return;
 
-    // Pick top capture or random high-quality move
-    const captureMoves = moves.filter((m) => m.captured);
-    const recommended = captureMoves.length > 0 ? captureMoves[0] : moves[0];
+    // Use our high-performance Minimax engine with Master depth to find the optimal tactical move
+    const recommended = getSmartEngineMove(chess, 'master');
+    if (!recommended) return;
 
     setHintSquare({ from: recommended.from, to: recommended.to });
     setHintCount((prev) => Math.max(0, prev - 1));
 
-    // Clear hint after 4 seconds
+    // Clear hint after 4.5 seconds
     setTimeout(() => {
       setHintSquare(null);
-    }, 4000);
+    }, 4500);
   };
 
   // Handle Square Click
@@ -902,12 +880,7 @@ export default function ChessBoard({
             }));
           }
 
-          // Secret Move Easter Egg: Knight moves to f3/c3 or f6/c6
-          if (!secretDiscovered && move.piece === 'n') {
-            if (['f3', 'c3', 'f6', 'c6'].includes(move.to)) {
-              setSecretDiscovered(true);
-            }
-          }
+
 
           setSelectedSquare(null);
           setLegalMoves([]);
@@ -969,7 +942,7 @@ export default function ChessBoard({
               <div className="flex items-center gap-2">
                 <span className="text-[10px] tracking-wider uppercase font-bold text-amber-400 font-mono flex items-center gap-1.5">
                   {gameMode === 'computer' 
-                    ? `LEVEL 6 · ${aiDifficulty.toUpperCase()}` 
+                    ? `LEVEL · ${aiDifficulty.toUpperCase()}` 
                     : gameMode === 'online'
                     ? '● LIVE 1v1 OPPONENT'
                     : 'PLAY VS FRIEND'}
@@ -1228,14 +1201,23 @@ export default function ChessBoard({
             </span>
           </button>
 
-          {/* Button 2: PIECES / CHOOSE COLOR (White or Black) */}
+          {/* Button 2: PIECES / CHOOSE COLOR (White or Black) - Closes after 5 moves each */}
           <button
-            onClick={() => gameMode !== 'online' && setShowSideModal(true)}
-            disabled={gameMode === 'online'}
+            onClick={() => {
+              if (gameMode === 'online' || isSideSelectionClosed) return;
+              setShowSideModal(true);
+            }}
+            disabled={gameMode === 'online' || isSideSelectionClosed}
             className={`flex flex-col items-center gap-1 group focus:outline-none ${
-              gameMode === 'online' ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+              gameMode === 'online' || isSideSelectionClosed ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
             }`}
-            title={gameMode === 'online' ? 'Assigned side in online match' : 'Select Side (White / Black)'}
+            title={
+              gameMode === 'online' 
+                ? 'Assigned side in online match' 
+                : isSideSelectionClosed
+                ? 'Option closed (Closed after 5 moves each)'
+                : 'Select Side (White / Black)'
+            }
           >
             <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-b from-[#64748b] via-[#334155] to-[#1e293b] p-[2px] shadow-[0_4px_12px_rgba(0,0,0,0.6)] group-hover:scale-105 transition-transform">
               <div className="w-full h-full rounded-full bg-gradient-to-b from-[#475569] to-[#1e293b] border border-slate-500/60 flex items-center justify-center shadow-inner relative">
@@ -1246,7 +1228,7 @@ export default function ChessBoard({
               </div>
             </div>
             <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-300 group-hover:text-amber-300">
-              Pieces
+              {isSideSelectionClosed ? 'Locked' : 'Pieces'}
             </span>
           </button>
 
@@ -1336,57 +1318,55 @@ export default function ChessBoard({
           </div>
 
           {/* User Side Selection Widget (Explicit User Request) */}
-          <div className="mt-4 p-3.5 rounded-2xl bg-[#070b14] border border-[#d4af37]/30 space-y-2">
-            <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
-              <span>Playing As:</span>
-              <button
-                onClick={handleFlipBoard}
-                className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1 font-mono"
-              >
-                <RotateCw className="w-3 h-3" /> Flip View
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button
-                onClick={() => handleSelectSide('w')}
-                className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                  playerColor === 'w'
-                    ? 'bg-gradient-to-r from-amber-200 to-amber-400 text-black shadow-lg shadow-amber-500/25 ring-2 ring-amber-300'
-                    : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                <span>♔</span>
-                <span>White</span>
-              </button>
-
-              <button
-                onClick={() => handleSelectSide('b')}
-                className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                  playerColor === 'b'
-                    ? 'bg-gradient-to-r from-slate-800 to-slate-950 text-white border border-amber-400 shadow-lg shadow-amber-500/25 ring-2 ring-amber-400/80'
-                    : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
-                }`}
-              >
-                <span>♚</span>
-                <span>Black</span>
-              </button>
-            </div>
-            <p className="text-[10px] text-slate-400 text-center pt-0.5">
-              {playerColor === 'w' ? 'You move first (White)' : 'Engine moves first (White), you respond as Black'}
-            </p>
-          </div>
-
-          {/* Secret Move Alert */}
-          {secretDiscovered && (
-            <div className="mt-4 p-3 rounded-2xl bg-amber-500/15 border border-amber-400 text-xs text-amber-200 space-y-1 animate-in fade-in">
-              <div className="flex items-center gap-1.5 font-bold text-amber-300">
-                <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
-                Secret Move Unlocked!
+          {/* Side Selection in Match Center - Closes after 5 moves each */}
+          {!isSideSelectionClosed ? (
+            <div className="mt-4 p-3.5 rounded-2xl bg-[#070b14] border border-[#d4af37]/30 space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+                <span>Playing As:</span>
+                <button
+                  onClick={handleFlipBoard}
+                  className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1 font-mono"
+                >
+                  <RotateCw className="w-3 h-3" /> Flip View
+                </button>
               </div>
-              <p className="text-[11px] text-slate-300">
-                Tactical Knight move registered. Easter Egg chat activated!
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  onClick={() => handleSelectSide('w')}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                    playerColor === 'w'
+                      ? 'bg-gradient-to-r from-amber-200 to-amber-400 text-black shadow-lg shadow-amber-500/25 ring-2 ring-amber-300'
+                      : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  <span>♔</span>
+                  <span>White</span>
+                </button>
+
+                <button
+                  onClick={() => handleSelectSide('b')}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                    playerColor === 'b'
+                      ? 'bg-gradient-to-r from-slate-800 to-slate-950 text-white border border-amber-400 shadow-lg shadow-amber-500/25 ring-2 ring-amber-400/80'
+                      : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  <span>♚</span>
+                  <span>Black</span>
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400 text-center pt-0.5">
+                {playerColor === 'w' ? 'You move first (White)' : 'Engine moves first (White), you respond as Black'}
               </p>
+            </div>
+          ) : (
+            <div className="mt-4 p-2.5 rounded-2xl bg-[#070b14]/70 border border-slate-800 flex items-center justify-between text-xs text-slate-400 px-3.5">
+              <span className="font-semibold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-400" />
+                Playing As: <strong className="text-white uppercase font-bold">{playerColor === 'w' ? '♔ White' : '♚ Black'}</strong>
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">(Option closed after 5 moves)</span>
             </div>
           )}
 
