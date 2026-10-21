@@ -95,11 +95,16 @@ export function SecretChatProvider({ children }) {
     let friendId = typeof params === 'object' ? params?.friendId : null;
     let durationSeconds = typeof params === 'object' && params?.durationSeconds ? params.durationSeconds : 300;
     
-    const expiresAt = new Date(Date.now() + durationSeconds * 1000).toISOString();
+    const expiresAt = (typeof params === 'object' && params?.expiresAt)
+      ? params.expiresAt
+      : new Date(Date.now() + durationSeconds * 1000).toISOString();
+
+    const remainingSecs = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+    const effectiveRemaining = remainingSecs > 0 ? remainingSecs : durationSeconds;
 
     const newSession = {
       isUnlocked: true,
-      timeRemaining: durationSeconds,
+      timeRemaining: effectiveRemaining,
       expiresAt,
       unlockReason: reason,
       friendId,

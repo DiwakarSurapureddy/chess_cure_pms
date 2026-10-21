@@ -76,6 +76,8 @@ class Game:
 
         self.captured_pieces = {"white": [], "black": []}
         self.chat_unlocked = False
+        self.chat_unlock_count = 0  # Maximum 2 times per game
+        self.round1_unlock_ply: Optional[int] = None
         self.chat_unlock_reason: Optional[str] = None
         self.chat_expires_at: Optional[str] = None
 
@@ -162,11 +164,42 @@ class Game:
             else:
                 self.captured_pieces["black"].append(captured_symbol)
 
-            # Chat unlock requirement: capture opponent piece within first 5 moves
-            if move_number <= 5 and not self.chat_unlocked:
+            # Chat unlock requirement: maximum 2 times per game
+            # Round 1: capture within first 5 moves (move_number <= 5)
+            # Round 2: capture within next 5 moves (10 half-moves / plies) after Round 1
+            now_utc = datetime.now(UTC)
+            is_active = False
+            if self.chat_unlocked and self.chat_expires_at:
+                try:
+                    exp = datetime.fromisoformat(self.chat_expires_at.replace("Z", "+00:00"))
+                    if exp > now_utc:
+                        is_active = True
+                    else:
+                        self.chat_unlocked = False
+                except Exception:
+                    self.chat_unlocked = False
+
+            cur_ply = len(self.moves) + 1  # 1-indexed ply count for this move
+            can_unlock = False
+            reason = None
+
+            if self.chat_unlock_count == 0:
+                if move_number <= 5:
+                    can_unlock = True
+                    self.chat_unlock_count = 1
+                    self.round1_unlock_ply = cur_ply
+                    reason = f"{player} captured opponent piece ({captured_symbol.upper()}) on move {move_number} (Chat 1 of 2)"
+            elif self.chat_unlock_count == 1 and not is_active:
+                plies_since_r1 = cur_ply - (self.round1_unlock_ply or 0)
+                if plies_since_r1 <= 10:
+                    can_unlock = True
+                    self.chat_unlock_count = 2
+                    reason = f"{player} captured opponent piece ({captured_symbol.upper()}) within 5 moves (Chat 2 of 2)"
+
+            if can_unlock:
                 self.chat_unlocked = True
-                self.chat_unlock_reason = f"{player} captured opponent piece ({captured_symbol.upper()}) on move {move_number}"
-                self.chat_expires_at = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
+                self.chat_unlock_reason = reason
+                self.chat_expires_at = (now_utc + timedelta(minutes=5)).isoformat()
 
         self.board.push(move)
 
@@ -247,6 +280,7 @@ class Game:
             "check_square": check_square,
             "captured_pieces": self.captured_pieces,
             "chat_unlocked": self.chat_unlocked and time_remaining > 0,
+            "chat_unlock_count": self.chat_unlock_count,
             "chat_unlock_reason": self.chat_unlock_reason,
             "chat_expires_at": self.chat_expires_at,
             "chat_time_remaining": time_remaining,

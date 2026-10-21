@@ -635,19 +635,21 @@ export default function Profile({ onNavigate }) {
                 game.opponent?.toLowerCase().includes('stockfish') ||
                 game.opponent?.toLowerCase().includes('computer');
 
-              // Format match title: when playing vs computer, show "Username vs Computer"
+              // In Career Game History:
+              // For whichever account is viewing:
+              // - If this user won: show "YOU WON" in green
+              // - If this user lost: show "YOU LOST" in red
+              // - If draw: show "DRAW"
               let matchTitle = game.opponent;
-              let winnerStatus = isWin ? `${currentUserName} Won` : isLoss ? 'Lost' : 'Draw';
+              let winnerStatus = isWin ? 'YOU WON' : isLoss ? 'YOU LOST' : 'DRAW';
 
               if (isComputerMatch) {
                 matchTitle = `${currentUserName} vs Computer`;
-                winnerStatus = isWin ? `${currentUserName} Won` : isLoss ? 'Computer Won' : 'Draw';
               } else if (game.mode === 'Challenge Puzzle') {
                 matchTitle = game.opponent;
-                winnerStatus = 'Solved';
+                winnerStatus = 'SOLVED';
               } else if (game.opponent) {
                 matchTitle = `${currentUserName} vs ${game.opponent}`;
-                winnerStatus = isWin ? `${currentUserName} Won` : isLoss ? `${game.opponent} Won` : 'Draw';
               }
 
               return (

@@ -213,12 +213,40 @@ class GameService:
                 tp = game.board.piece_at(computer_move.to_square)
                 captured_symbol = tp.symbol().lower() if tp else "p"
 
-            game.captured_pieces["black"].append(captured_symbol)
-            if game.board.fullmove_number <= 5 and not game.chat_unlocked:
+            from datetime import datetime, UTC, timedelta
+            now_utc = datetime.now(UTC)
+            is_active = False
+            if game.chat_unlocked and game.chat_expires_at:
+                try:
+                    exp = datetime.fromisoformat(game.chat_expires_at.replace("Z", "+00:00"))
+                    if exp > now_utc:
+                        is_active = True
+                    else:
+                        game.chat_unlocked = False
+                except Exception:
+                    game.chat_unlocked = False
+
+            cur_ply = len(game.moves) + 1
+            can_unlock = False
+            reason = None
+
+            if getattr(game, "chat_unlock_count", 0) == 0:
+                if game.board.fullmove_number <= 5:
+                    can_unlock = True
+                    game.chat_unlock_count = 1
+                    game.round1_unlock_ply = cur_ply
+                    reason = f"Computer captured opponent piece ({captured_symbol.upper()}) on move {game.board.fullmove_number} (Chat 1 of 2)"
+            elif getattr(game, "chat_unlock_count", 0) == 1 and not is_active:
+                plies_since_r1 = cur_ply - (getattr(game, "round1_unlock_ply", 0) or 0)
+                if plies_since_r1 <= 10:
+                    can_unlock = True
+                    game.chat_unlock_count = 2
+                    reason = f"Computer captured opponent piece ({captured_symbol.upper()}) within 5 moves (Chat 2 of 2)"
+
+            if can_unlock:
                 game.chat_unlocked = True
-                game.chat_unlock_reason = f"Computer captured opponent piece ({captured_symbol.upper()}) on move {game.board.fullmove_number}"
-                from datetime import datetime, UTC, timedelta
-                game.chat_expires_at = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
+                game.chat_unlock_reason = reason
+                game.chat_expires_at = (now_utc + timedelta(minutes=5)).isoformat()
 
         game.board.push(computer_move)
 

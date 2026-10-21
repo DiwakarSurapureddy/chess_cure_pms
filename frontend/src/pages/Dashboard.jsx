@@ -3,10 +3,10 @@ import ChessBoard from '../components/chess/ChessBoard';
 import Chat from './Chat';
 import { useAuth } from '../context/AuthContext';
 import { useSecretChat } from '../context/SecretChatContext';
-import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X, Crown, ArrowLeft } from 'lucide-react';
+import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X, Crown, ArrowLeft, Flag } from 'lucide-react';
 
-export default function Dashboard({ initialMode = 'computer', onNavigate }) {
-  const { user, recordGameResult, activeOnlineMatch, setActiveOnlineMatch, cancelActiveOnlineMatch } = useAuth();
+export default function Dashboard({ initialMode = 'computer', onNavigate, onGameOver }) {
+  const { user, token, recordGameResult, activeOnlineMatch, setActiveOnlineMatch, cancelActiveOnlineMatch } = useAuth();
   const [mode, setMode] = useState(activeOnlineMatch ? 'online' : initialMode);
   const [aiLevel, setAiLevel] = useState('intermediate');
   const [selectedSide, setSelectedSide] = useState(activeOnlineMatch?.playerColor || 'w'); // 'w' | 'b'
@@ -17,6 +17,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
   const [activeBoardView, setActiveBoardView] = useState('board'); // 'board' | 'chat'
   const hasUserClosedInPlaceRef = useRef(false);
   const chatAutoReturnTimerRef = useRef(null);
+  const chessBoardRef = useRef(null);
 
   // Secret chat countdown timer from context (5-minute countdown continues everywhere)
   const { isChatUnlocked, timeRemaining, formattedTime } = useSecretChat ? useSecretChat() : { isChatUnlocked: false, timeRemaining: 0, formattedTime: '00:00' };
@@ -29,6 +30,14 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
       }
     };
   }, []);
+
+  // When 5-minute session ends, automatically switch back to chessboard view
+  useEffect(() => {
+    if (!isChatUnlocked && activeBoardView === 'chat') {
+      setActiveBoardView('board');
+      try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
+    }
+  }, [isChatUnlocked, activeBoardView]);
 
   // Check if an existing 5-minute session is already running (e.g. across page refresh)
   useEffect(() => {
@@ -123,7 +132,15 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
     if (target === 'computer') setSelectedSide('w');
   };
 
-  const handleExitLiveMatch = performExitLiveMatch;
+  const handleExitMatch = () => {
+    if (chessBoardRef.current?.handleResign) {
+      chessBoardRef.current.handleResign();
+    } else {
+      performExitLiveMatch();
+    }
+  };
+
+  const handleExitLiveMatch = handleExitMatch;
 
   const handleOnlineMatchCancelled = () => {
     if (cancelActiveOnlineMatch) {
@@ -151,13 +168,16 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
     hasUserClosedInPlaceRef.current = false;
     setActiveBoardView('chat');
 
-    // 5-minute (300 seconds) countdown:
-    // ONLY when 5 full minutes elapse, automatically switch back to the chessboard!
+    // 5-minute (300 seconds) countdown strictly synchronized with server expiresAt:
     if (chatAutoReturnTimerRef.current) {
       clearTimeout(chatAutoReturnTimerRef.current);
     }
-    const fiveMinutesMs = 300 * 1000;
-    const expiresAt = Date.now() + fiveMinutesMs;
+    const remMs = targetFriend?.timeRemaining
+      ? targetFriend.timeRemaining * 1000
+      : (targetFriend?.expiresAt ? Math.max(0, new Date(targetFriend.expiresAt).getTime() - Date.now()) : 300 * 1000);
+    const expiresAt = targetFriend?.expiresAt
+      ? new Date(targetFriend.expiresAt).getTime()
+      : Date.now() + remMs;
     try {
       localStorage.setItem('cc_chat_expires_at', expiresAt.toString());
     } catch {}
@@ -167,7 +187,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
       setActiveBoardView('board');
       hasUserClosedInPlaceRef.current = true;
       try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
-    }, fiveMinutesMs);
+    }, remMs);
   };
 
   const handleGameOver = (resultData) => {
@@ -216,7 +236,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
 
           <button
             type="button"
-            onClick={handleExitLiveMatch}
+            onClick={handleExitMatch}
             className="py-1.5 px-3.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/40 text-rose-300 text-xs font-bold transition-colors cursor-pointer"
           >
             Exit Live Match
@@ -334,12 +354,15 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
           </div>
         )}
 
-        {mode === 'online' && activeOnlineMatch && (
+        {(mode === 'online' || mode === 'two-player') && (
           <button
-            onClick={handleExitLiveMatch}
-            className="py-1.5 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-bold transition-colors cursor-pointer"
+            type="button"
+            onClick={handleExitMatch}
+            className="py-1.5 px-3.5 rounded-xl bg-gradient-to-r from-rose-600/30 to-red-600/30 hover:from-rose-600/45 hover:to-red-600/45 border border-rose-500/60 text-rose-200 text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-md hover:shadow-rose-900/40 hover:scale-105 active:scale-95 cursor-pointer"
+            title={mode === 'online' ? 'Exit live online match and forfeit' : 'Exit two-player match and forfeit to opponent'}
           >
-            Exit Live Match
+            <Flag className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+            <span>{mode === 'online' ? 'Exit Live Match' : 'Exit Match'}</span>
           </button>
         )}
 
@@ -425,6 +448,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate }) {
       {/* ChessBoard Container: Stays mounted continuously so WebSocket never reconnects or resets! */}
       <div className={activeBoardView === 'board' ? 'w-full' : 'hidden'}>
         <ChessBoard
+          ref={chessBoardRef}
           key={`${mode}-${selectedSide}-${friendName}-${activeOnlineMatch?.gameId || 'offline'}`}
           gameMode={mode}
           aiDifficulty={aiLevel}
