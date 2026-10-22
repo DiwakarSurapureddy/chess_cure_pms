@@ -19,14 +19,25 @@ import {
   Sparkles,
   QrCode,
   ShieldCheck,
-  CheckCheck
+  CheckCheck,
+  Phone,
+  PhoneOff
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../context/AuthContext';
 import { useSecretChat } from '../context/SecretChatContext';
 import api from '../services/api';
 
-const CHESS_EMOJIS = ['♟️', '♞', '♝', '♜', '♛', '♚', '⚔️', '👑', '🔥', '🏆', '💯', '👍', '👏', '🎯', '💡', '🧠', '😊', '😎', '🤝', '🙌'];
+const CHESS_EMOJIS = [
+  '♟️', '♞', '♝', '♜', '♛', '♚', '⚔️', '👑', '🏆', '🎯', '🧠', '♟',
+  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '🥹', '😊', '😇', '🙂',
+  '🙃', '😉', '😍', '🥰', '😘', '😋', '😎', '🤓', '🤔', '🫡', '🤗', '🥳',
+  '😴', '😭', '😤', '😱', '🤯', '😬', '🙄', '🤫', '🤭', '🫠', '😇', '🤩',
+  '👍', '👎', '👏', '🙌', '🤝', '🙏', '💪', '✌️', '🤞', '👌', '🫶', '👋',
+  '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '💔', '💕', '💖', '💯',
+  '🔥', '✨', '⭐', '🌟', '💫', '🎉', '🎊', '🎁', '🎈', '💡', '🚀', '⚡',
+  '🌈', '☀️', '🌙', '☕', '🍕', '🍰', '🍿', '⚽', '🏀', '🎮', '🎵', '📸',
+];
 
 const QUICK_PROMPTS = [
   '⚔️ Ready for a match!',
@@ -37,6 +48,37 @@ const QUICK_PROMPTS = [
 ];
 
 const EMPTY_FRIENDS = [];
+
+const formatMessageTime = (message) => {
+  const rawCreatedAt = message?.createdAt;
+  if (rawCreatedAt) {
+    // API timestamps are UTC. Treat legacy naive ISO values as UTC too.
+    const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(rawCreatedAt);
+    const date = new Date(hasTimezone ? rawCreatedAt : `${rawCreatedAt}Z`);
+    if (!Number.isNaN(date.getTime())) {
+      return new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }).format(date);
+    }
+  }
+  return message?.timestamp || 'Recently';
+};
+
+const formatLastSeen = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+  const day = date.toDateString() === new Date().toDateString()
+    ? 'today'
+    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
+  return `Last seen ${day} at ${time}`;
+};
 
 export default function Chat({
   onNavigate,
@@ -89,8 +131,18 @@ export default function Chat({
     expiresAt: null,
     unlockReason: '',
   });
+  const [friendPresence, setFriendPresence] = useState({
+    online: false,
+    lastSeen: null,
+    loaded: false,
+  });
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [sendError, setSendError] = useState('');
+  const [callState, setCallState] = useState('idle');
+  const [incomingCall, setIncomingCall] = useState(null);
+  const [callError, setCallError] = useState('');
+  const [remoteStream, setRemoteStream] = useState(null);
+  const [callElapsedSeconds, setCallElapsedSeconds] = useState(0);
 
   // Premium ₹5 Payment Modal State
   const [premiumModalOpen, setPremiumModalOpen] = useState(false);
@@ -100,9 +152,174 @@ export default function Chat({
 
   const messagesEndRef = useRef(null);
   const chatPollRef = useRef(null);
+  const chatSocketRef = useRef(null);
   const timerCountdownRef = useRef(null);
   const chatSyncInFlightRef = useRef(null);
   const chatStatusRequestVersionRef = useRef(0);
+  const peerConnectionRef = useRef(null);
+  const localStreamRef = useRef(null);
+  const pendingIceRef = useRef([]);
+  const activeCallIdRef = useRef(null);
+  const remoteAudioRef = useRef(null);
+  const remoteStreamFallbackRef = useRef(null);
+  const callConnectedAtRef = useRef(null);
+  const callInitiatorRef = useRef(false);
+  const [audioPlaybackBlocked, setAudioPlaybackBlocked] = useState(false);
+
+  const sendCallSignal = (event) => {
+    const socket = chatSocketRef.current;
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    socket.send(JSON.stringify(event));
+    return true;
+  };
+
+  const releaseCall = () => {
+    peerConnectionRef.current?.close();
+    peerConnectionRef.current = null;
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localStreamRef.current = null;
+    pendingIceRef.current = [];
+    activeCallIdRef.current = null;
+    callConnectedAtRef.current = null;
+    callInitiatorRef.current = false;
+    setCallElapsedSeconds(0);
+    setRemoteStream(null);
+    remoteStreamFallbackRef.current = null;
+    setAudioPlaybackBlocked(false);
+    setIncomingCall(null);
+    setCallState('idle');
+  };
+
+  const createCallPeer = (callId) => {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ],
+    });
+    peerConnectionRef.current = pc;
+    pc.onicecandidate = (event) => {
+      if (event.candidate) sendCallSignal({ type: 'call-ice', callId, candidate: event.candidate.toJSON() });
+    };
+    pc.ontrack = (event) => {
+      let stream = event.streams?.[0];
+      if (!stream) {
+        if (!remoteStreamFallbackRef.current) remoteStreamFallbackRef.current = new MediaStream();
+        remoteStreamFallbackRef.current.addTrack(event.track);
+        stream = remoteStreamFallbackRef.current;
+      }
+      setRemoteStream(stream);
+    };
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') {
+        callConnectedAtRef.current = Date.now();
+        setCallElapsedSeconds(0);
+        setCallState('active');
+      }
+      if (['failed', 'closed'].includes(pc.connectionState)) releaseCall();
+    };
+    return pc;
+  };
+
+  const addPendingIceCandidates = async (pc) => {
+    for (const candidate of pendingIceRef.current) {
+      try { await pc.addIceCandidate(candidate); } catch (error) { console.warn('Could not add call network candidate:', error); }
+    }
+    pendingIceRef.current = [];
+  };
+
+  const recordCallLog = async (text) => {
+    if (!token || !activeFriendParam) return;
+    try {
+      const result = await api.sendChatMessage(token, activeFriendParam, { text });
+      const message = result?.message;
+      if (message) {
+        setChatMessages((previous) => previous.some((item) => item.id === message.id)
+          ? previous
+          : [...previous, message]);
+      }
+    } catch (error) {
+      console.warn('Could not save voice call entry in chat:', error);
+    }
+  };
+
+  const getCallDurationLabel = () => {
+    const seconds = callConnectedAtRef.current
+      ? Math.floor((Date.now() - callConnectedAtRef.current) / 1000)
+      : 0;
+    return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  };
+
+  const startVoiceCall = async () => {
+    setCallError('');
+    if (!friendPresence.online) {
+      setCallError('Your friend is offline. They need to open this chat to receive a call.');
+      return;
+    }
+    if (!sendCallSignal({ type: 'ping' })) {
+      setCallError('Chat connection is not ready. Please try again in a moment.');
+      return;
+    }
+    const callId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStreamRef.current = stream;
+      activeCallIdRef.current = callId;
+      const pc = createCallPeer(callId);
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      callInitiatorRef.current = true;
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      if (!sendCallSignal({ type: 'call-offer', callId, description: pc.localDescription.toJSON() })) {
+        throw new Error('Chat connection closed before the call started.');
+      }
+      setCallState('outgoing');
+      void recordCallLog('📞 Voice call started');
+    } catch (error) {
+      releaseCall();
+      setCallError(error?.name === 'NotAllowedError'
+        ? 'Microphone access was denied. Allow microphone access in your browser to call.'
+        : (error?.message || 'Could not start the voice call.'));
+    }
+  };
+
+  const acceptVoiceCall = async () => {
+    if (!incomingCall) return;
+    const call = incomingCall;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStreamRef.current = stream;
+      activeCallIdRef.current = call.callId;
+      const pc = createCallPeer(call.callId);
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      await pc.setRemoteDescription(call.description);
+      await addPendingIceCandidates(pc);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      sendCallSignal({ type: 'call-answer', callId: call.callId, description: pc.localDescription.toJSON() });
+      callInitiatorRef.current = false;
+      setCallState('connecting');
+      setIncomingCall(null);
+      void recordCallLog('📞 Voice call answered');
+    } catch (error) {
+      sendCallSignal({ type: 'call-reject', callId: call.callId });
+      releaseCall();
+      setCallError(error?.name === 'NotAllowedError'
+        ? 'Microphone access was denied. Allow microphone access to accept the call.'
+        : (error?.message || 'Could not accept the call.'));
+    }
+  };
+
+  const rejectVoiceCall = () => {
+    if (incomingCall) sendCallSignal({ type: 'call-reject', callId: incomingCall.callId });
+    releaseCall();
+  };
+
+  const endVoiceCall = () => {
+    if (activeCallIdRef.current) sendCallSignal({ type: 'call-end', callId: activeCallIdRef.current });
+    if (callInitiatorRef.current) void recordCallLog(`📞 Voice call ended · ${getCallDurationLabel()}`);
+    releaseCall();
+  };
 
   // If embedded in-place friend is passed, synchronize selection
   useEffect(() => {
@@ -172,6 +389,38 @@ export default function Chat({
   } : null);
 
   const activeFriendParam = activeFriend?.id || activeFriend?.playerId;
+  const canMessageActiveFriend = Boolean(chatStatus.isFriend || chatStatus.isUnlocked);
+
+  useEffect(() => {
+    let isMounted = true;
+    let interval = null;
+
+    const refreshPresence = async () => {
+      if (!activeFriendParam || !token) return;
+      try {
+        const result = await api.getFriendPresence(token, activeFriendParam);
+        if (isMounted && result?.success) {
+          setFriendPresence({
+            online: Boolean(result.online),
+            lastSeen: result.lastSeen || null,
+            loaded: true,
+          });
+        }
+      } catch {
+        if (isMounted) setFriendPresence((previous) => ({ ...previous, loaded: true }));
+      }
+    };
+
+    setFriendPresence({ online: false, lastSeen: null, loaded: false });
+    refreshPresence();
+    interval = setInterval(refreshPresence, 10000);
+    window.addEventListener('focus', refreshPresence);
+    return () => {
+      isMounted = false;
+      if (interval) clearInterval(interval);
+      window.removeEventListener('focus', refreshPresence);
+    };
+  }, [activeFriendParam, token]);
 
   // Sync status and messages for active friend
   const syncActiveChat = async () => {
@@ -201,6 +450,7 @@ export default function Chat({
           }
           const isSameSession = prev.isUnlocked && nextUnlocked && prev.expiresAt === expiresAt;
           return {
+            isFriend: Boolean(statusRes.isFriend),
             isUnlocked: nextUnlocked || localHasActiveTime,
             timeRemainingSeconds: isSameSession ? prev.timeRemainingSeconds : diffSeconds,
             expiresAt: expiresAt || prev.expiresAt,
@@ -253,12 +503,140 @@ export default function Chat({
     syncActiveChat();
 
     if (chatPollRef.current) clearInterval(chatPollRef.current);
-    chatPollRef.current = setInterval(syncActiveChat, 2500);
+    chatPollRef.current = setInterval(syncActiveChat, 1000);
 
     return () => {
       if (chatPollRef.current) clearInterval(chatPollRef.current);
     };
   }, [activeFriendParam, token]);
+
+  // Stream new messages directly from the backend. HTTP polling above remains
+  // as a recovery path while a socket reconnects or the proxy is unavailable.
+  useEffect(() => {
+    if (!activeFriendParam || !token || !user?.id) return;
+
+    let stopped = false;
+    let reconnectTimer = null;
+    let heartbeatTimer = null;
+    let socket = null;
+
+    const connect = () => {
+      if (stopped) return;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url = `${protocol}//${window.location.host}/api/chat/ws/${encodeURIComponent(activeFriendParam)}`;
+      socket = new WebSocket(url);
+      chatSocketRef.current = socket;
+
+      socket.onopen = () => {
+        socket.send(JSON.stringify({ token }));
+        heartbeatTimer = setInterval(() => {
+          if (socket?.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 25000);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload?.type === 'call-offer') {
+            if (activeCallIdRef.current) {
+              sendCallSignal({ type: 'call-reject', callId: payload.callId });
+              return;
+            }
+            activeCallIdRef.current = payload.callId;
+            pendingIceRef.current = [];
+            setIncomingCall(payload);
+            setCallError('');
+            setCallState('incoming');
+            return;
+          }
+          if (payload?.type === 'call-ice' && payload.callId === activeCallIdRef.current && payload.candidate) {
+            if (peerConnectionRef.current?.remoteDescription) {
+              peerConnectionRef.current.addIceCandidate(payload.candidate).catch((error) => console.warn('Could not add call network candidate:', error));
+            } else {
+              pendingIceRef.current.push(payload.candidate);
+            }
+            return;
+          }
+          if (payload?.type === 'call-answer' && payload.callId === activeCallIdRef.current && peerConnectionRef.current) {
+            peerConnectionRef.current.setRemoteDescription(payload.description)
+              .then(() => addPendingIceCandidates(peerConnectionRef.current))
+              .catch((error) => { setCallError(error.message || 'Could not connect the call.'); releaseCall(); });
+            return;
+          }
+          if (['call-reject', 'call-end'].includes(payload?.type) && payload.callId === activeCallIdRef.current) {
+            if (callInitiatorRef.current) {
+              const entry = payload.type === 'call-reject'
+                ? '📞 Voice call declined'
+                : `📞 Voice call ended · ${getCallDurationLabel()}`;
+              void recordCallLog(entry);
+            }
+            releaseCall();
+            setCallError(payload.type === 'call-reject' ? 'The call was declined.' : 'The other person ended the call.');
+            return;
+          }
+          const message = payload?.message;
+          if (payload?.type !== 'message' || !message) return;
+          if (![message.senderId, message.receiverId].includes(user.id)) return;
+
+          setChatMessages((previous) => previous.some((item) => item.id === message.id)
+            ? previous
+            : [...previous, message]);
+        } catch (error) {
+          console.warn('Could not process incoming chat message:', error);
+        }
+      };
+
+      socket.onclose = () => {
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        if (!stopped) reconnectTimer = setTimeout(connect, 1500);
+      };
+      socket.onerror = () => socket?.close();
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (activeCallIdRef.current && socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'call-end', callId: activeCallIdRef.current }));
+      }
+      if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+      if (chatSocketRef.current === socket) chatSocketRef.current = null;
+    };
+  }, [activeFriendParam, activeFriend?.id, token, user?.id]);
+
+  useEffect(() => {
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteStream;
+    if (remoteStream && remoteAudioRef.current) {
+      remoteAudioRef.current.play()
+        .then(() => setAudioPlaybackBlocked(false))
+        .catch(() => setAudioPlaybackBlocked(true));
+    }
+  }, [remoteStream]);
+
+  useEffect(() => {
+    if (callState !== 'active' || !callConnectedAtRef.current) return undefined;
+    const updateDuration = () => setCallElapsedSeconds(Math.floor((Date.now() - callConnectedAtRef.current) / 1000));
+    updateDuration();
+    const interval = setInterval(updateDuration, 1000);
+    return () => clearInterval(interval);
+  }, [callState]);
+
+  useEffect(() => {
+    if (callState !== 'outgoing') return undefined;
+    const timeout = setTimeout(() => {
+      if (activeCallIdRef.current) sendCallSignal({ type: 'call-end', callId: activeCallIdRef.current });
+      if (callInitiatorRef.current) void recordCallLog('📞 Voice call · no answer');
+      releaseCall();
+      setCallError('No answer. You can try calling again.');
+    }, 30000);
+    return () => clearTimeout(timeout);
+  }, [callState]);
+
+  useEffect(() => () => releaseCall(), [activeFriendParam]);
 
   // Track if countdown was actively running (>0) so we only switch on genuine 5-minute expiry
   const hadActiveCountdownRef = useRef(false);
@@ -380,8 +758,8 @@ export default function Chat({
   const handleSendMessage = async (e) => {
     e?.preventDefault();
     if (!inputVal.trim() || !activeFriend || !token) return;
-    if (!chatStatus.isUnlocked) {
-      setSendError('Chat session is locked. Capture a piece within 5 moves or extend for ₹5.');
+    if (!canMessageActiveFriend) {
+      setSendError('Accept this player as a friend before sending messages.');
       return;
     }
 
@@ -395,7 +773,9 @@ export default function Chat({
       const res = await api.sendChatMessage(token, friendParam, { text: textToSend });
       if (res?.success && res.message) {
         setChatMessages((prev) => (
-          prev.some((m) => m.id === res.message.id) ? prev : [...prev, res.message]
+          prev.some((message) => message.id === res.message.id)
+            ? prev
+            : [...prev, res.message]
         ));
       }
     } catch (err) {
@@ -496,7 +876,7 @@ export default function Chat({
                 <img src={activeFriend.profilePicture || activeFriend.profile_picture || activeFriend.avatar} alt="" className="w-full h-full object-cover" />
               ) : (activeFriend?.username || activeFriend?.name || 'F')[0].toUpperCase()}
             </div>
-            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-amber-400 border-2 border-[#202c33]" />
+            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#202c33] ${friendPresence.online ? 'bg-emerald-400' : 'bg-slate-500'}`} />
           </div>
 
           <div className="min-w-0">
@@ -509,8 +889,13 @@ export default function Chat({
               </span>
             </div>
             <p className="text-[11px] text-[#8696a0] flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-              <span>Online • Accepted Friend</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${friendPresence.online ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+              <span>
+                {friendPresence.online
+                  ? 'Online'
+                  : `Offline${friendPresence.lastSeen ? ` · ${formatLastSeen(friendPresence.lastSeen)}` : ''}`}
+                {' · Accepted Friend'}
+              </span>
             </p>
           </div>
         </div>
@@ -545,6 +930,15 @@ export default function Chat({
             </button>
           )}
 
+          <button
+            onClick={['outgoing', 'connecting', 'active'].includes(callState) ? endVoiceCall : startVoiceCall}
+            disabled={callState === 'incoming' || (!friendPresence.online && callState === 'idle')}
+            className={`p-2 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${['outgoing', 'connecting', 'active'].includes(callState) ? 'bg-rose-600 text-white hover:bg-rose-500' : 'text-[#aebac1] hover:bg-[#374248] hover:text-emerald-400'}`}
+            title={['outgoing', 'connecting', 'active'].includes(callState) ? 'End voice call' : friendPresence.online ? 'Start voice call' : 'Friend is offline'}
+          >
+            {['outgoing', 'connecting', 'active'].includes(callState) ? <PhoneOff className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
+          </button>
+
           {/* Challenge Friend */}
           <button
             onClick={handleChallengeFriend}
@@ -555,6 +949,40 @@ export default function Chat({
           </button>
         </div>
       </div>
+
+      {(callState !== 'idle' || callError) && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-600 bg-[#101b24] p-5 text-center shadow-2xl">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-300">
+              {callState === 'incoming' ? <Phone className="h-6 w-6 animate-pulse" /> : <Phone className="h-6 w-6" />}
+            </div>
+            <h3 className="font-bold text-white">
+            {callState === 'incoming' ? `Incoming call · ringing from ${activeFriend?.username || activeFriend?.name || 'Friend'}`
+                : callState === 'outgoing' ? 'Ringing…'
+                  : callState === 'connecting' ? 'Connecting call…'
+                    : callState === 'active' ? `Voice call · ${String(Math.floor(callElapsedSeconds / 60)).padStart(2, '0')}:${String(callElapsedSeconds % 60).padStart(2, '0')}` : 'Voice call'}
+            </h3>
+            {callError && <p className="mt-2 text-sm text-rose-300">{callError}</p>}
+            {audioPlaybackBlocked && callState === 'active' && (
+              <button
+                onClick={() => remoteAudioRef.current?.play().then(() => setAudioPlaybackBlocked(false)).catch(() => setCallError('Could not play the other person’s microphone audio.'))}
+                className="mt-3 rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold text-black hover:bg-amber-400"
+              >Enable call audio</button>
+            )}
+            {callState === 'incoming' ? (
+              <div className="mt-5 flex justify-center gap-3">
+                <button onClick={rejectVoiceCall} className="rounded-full bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-500">Decline</button>
+                <button onClick={acceptVoiceCall} className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-bold text-black hover:bg-emerald-400">Accept</button>
+              </div>
+            ) : callState === 'outgoing' || callState === 'connecting' || callState === 'active' ? (
+              <button onClick={endVoiceCall} className="mt-5 rounded-full bg-rose-600 px-4 py-2 text-sm font-bold text-white hover:bg-rose-500">End call</button>
+            ) : (
+              <button onClick={() => setCallError('')} className="mt-4 rounded-lg bg-slate-700 px-4 py-2 text-sm text-white hover:bg-slate-600">Close</button>
+            )}
+          </div>
+          <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+        </div>
+      )}
 
       {/* Message Search Bar (WhatsApp Style) */}
       {showMessageSearch && (
@@ -654,10 +1082,10 @@ export default function Chat({
                       : 'bg-[#202c33] text-[#e9edef] rounded-tl-none border border-[#2a3942]/50'
                   }`}
                 >
-                  <p className="break-words select-text">{msg.text || msg.message}</p>
+                  <p className={`break-words select-text ${(msg.text || msg.message || '').startsWith('📞') ? 'font-semibold text-amber-100' : ''}`}>{msg.text || msg.message}</p>
                   
                   <div className="flex items-center justify-end gap-1 mt-1 text-[10px] text-[#8696a0] select-none">
-                    <span>{msg.timestamp || 'Recently'}</span>
+                    <span>{formatMessageTime(msg)}</span>
                     {isMe && (
                       <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
                     )}
@@ -679,7 +1107,7 @@ export default function Chat({
         {QUICK_PROMPTS.map((prompt, idx) => (
           <button
             key={idx}
-            disabled={!chatStatus.isUnlocked}
+            disabled={!canMessageActiveFriend}
             onClick={() => setInputVal(prompt)}
             className="px-2.5 py-1 rounded-lg bg-[#202c33] hover:bg-[#2a3942] disabled:opacity-30 text-[#aebac1] text-[11px] whitespace-nowrap transition-colors cursor-pointer border border-[#2a3942]/50 shrink-0"
           >
@@ -690,15 +1118,20 @@ export default function Chat({
 
       {/* Emoji Picker Popup */}
       {showEmojiPicker && (
-        <div className="p-2.5 bg-[#202c33] border-t border-[#2a3942] flex flex-wrap gap-2 animate-in slide-in-from-bottom-2 duration-150">
+        <div
+          aria-label="Choose an emoji"
+          className="max-h-40 overflow-y-auto p-2.5 bg-[#202c33] border-t border-[#2a3942] grid grid-cols-8 sm:grid-cols-12 gap-1.5 animate-in slide-in-from-bottom-2 duration-150"
+        >
           {CHESS_EMOJIS.map((emoji, idx) => (
             <button
               key={idx}
+              type="button"
+              aria-label={`Insert ${emoji}`}
               onClick={() => {
                 setInputVal((prev) => prev + emoji);
                 setShowEmojiPicker(false);
               }}
-              className="text-base p-1.5 hover:bg-[#374248] rounded-lg transition-colors cursor-pointer"
+              className="text-lg p-1.5 hover:bg-[#374248] rounded-lg transition-colors cursor-pointer"
             >
               {emoji}
             </button>
@@ -719,7 +1152,7 @@ export default function Chat({
           <button
             type="button"
             onClick={() => setShowEmojiPicker((prev) => !prev)}
-            disabled={!chatStatus.isUnlocked}
+            disabled={!canMessageActiveFriend || isSendingMessage}
             className="p-2 text-[#aebac1] hover:text-white disabled:opacity-40 transition-colors"
             title="Emoji picker"
           >
@@ -728,11 +1161,11 @@ export default function Chat({
 
           <input
             type="text"
-            disabled={!chatStatus.isUnlocked || isSendingMessage}
+            disabled={!canMessageActiveFriend || isSendingMessage}
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
             placeholder={
-              chatStatus.isUnlocked
+              canMessageActiveFriend
                 ? 'Type a message...'
                 : '🔒 Chat is locked. Capture piece within 5 moves or extend for ₹5.'
             }
@@ -741,7 +1174,7 @@ export default function Chat({
 
           <button
             type="submit"
-            disabled={!chatStatus.isUnlocked || !inputVal.trim() || isSendingMessage}
+            disabled={!canMessageActiveFriend || !inputVal.trim() || isSendingMessage}
             className="w-10 h-10 rounded-full bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black flex items-center justify-center transition-all cursor-pointer shadow-md shrink-0"
             title="Send"
           >

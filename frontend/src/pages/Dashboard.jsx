@@ -16,20 +16,10 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
   const [inPlaceChatFriend, setInPlaceChatFriend] = useState(null);
   const [activeBoardView, setActiveBoardView] = useState('board'); // 'board' | 'chat'
   const hasUserClosedInPlaceRef = useRef(false);
-  const chatAutoReturnTimerRef = useRef(null);
   const chessBoardRef = useRef(null);
 
-  // Secret chat countdown timer from context (5-minute countdown continues everywhere)
-  const { isChatUnlocked, timeRemaining, formattedTime } = useSecretChat ? useSecretChat() : { isChatUnlocked: false, timeRemaining: 0, formattedTime: '00:00' };
-
-  // Clean up auto-return timer on unmount
-  useEffect(() => {
-    return () => {
-      if (chatAutoReturnTimerRef.current) {
-        clearTimeout(chatAutoReturnTimerRef.current);
-      }
-    };
-  }, []);
+  // Chat owns the visible countdown and connection; both stop when its view closes.
+  const { isChatUnlocked } = useSecretChat ? useSecretChat() : { isChatUnlocked: false };
 
   // When 5-minute session ends, automatically switch back to chessboard view
   useEffect(() => {
@@ -38,27 +28,6 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
       try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
     }
   }, [isChatUnlocked, activeBoardView]);
-
-  // Check if an existing 5-minute session is already running (e.g. across page refresh)
-  useEffect(() => {
-    try {
-      const storedExpiry = localStorage.getItem('cc_chat_expires_at');
-      if (storedExpiry) {
-        const exp = parseInt(storedExpiry, 10);
-        const rem = exp - Date.now();
-        if (rem > 0) {
-          if (chatAutoReturnTimerRef.current) clearTimeout(chatAutoReturnTimerRef.current);
-          chatAutoReturnTimerRef.current = setTimeout(() => {
-            setActiveBoardView('board');
-            hasUserClosedInPlaceRef.current = true;
-            try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
-          }, rem);
-        } else {
-          try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
-        }
-      }
-    } catch {}
-  }, []);
 
   useEffect(() => {
     if (activeOnlineMatch) {
@@ -102,10 +71,6 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
     }
     setInPlaceChatFriend(null);
     setActiveBoardView('board');
-    if (chatAutoReturnTimerRef.current) {
-      clearTimeout(chatAutoReturnTimerRef.current);
-      chatAutoReturnTimerRef.current = null;
-    }
     try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
     try { localStorage.removeItem('cc_selected_chat_opponent'); } catch {}
     setMode('computer');
@@ -122,10 +87,6 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
     }
     setInPlaceChatFriend(null);
     setActiveBoardView('board');
-    if (chatAutoReturnTimerRef.current) {
-      clearTimeout(chatAutoReturnTimerRef.current);
-      chatAutoReturnTimerRef.current = null;
-    }
     try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
     try { localStorage.removeItem('cc_selected_chat_opponent'); } catch {}
     setMode(target);
@@ -167,27 +128,6 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
     setInPlaceChatFriend(targetFriend);
     hasUserClosedInPlaceRef.current = false;
     setActiveBoardView('chat');
-
-    // 5-minute (300 seconds) countdown strictly synchronized with server expiresAt:
-    if (chatAutoReturnTimerRef.current) {
-      clearTimeout(chatAutoReturnTimerRef.current);
-    }
-    const remMs = targetFriend?.timeRemaining
-      ? targetFriend.timeRemaining * 1000
-      : (targetFriend?.expiresAt ? Math.max(0, new Date(targetFriend.expiresAt).getTime() - Date.now()) : 300 * 1000);
-    const expiresAt = targetFriend?.expiresAt
-      ? new Date(targetFriend.expiresAt).getTime()
-      : Date.now() + remMs;
-    try {
-      localStorage.setItem('cc_chat_expires_at', expiresAt.toString());
-    } catch {}
-
-    chatAutoReturnTimerRef.current = setTimeout(() => {
-      // 5 Minutes Complete: Automatically return to chessboard
-      setActiveBoardView('board');
-      hasUserClosedInPlaceRef.current = true;
-      try { localStorage.removeItem('cc_chat_expires_at'); } catch {}
-    }, remMs);
   };
 
   const handleGameOver = (resultData) => {
@@ -386,8 +326,8 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
             <MessageSquare className="w-3.5 h-3.5" />
             <span>
               {activeBoardView === 'chat'
-                ? `View Chessboard ${isChatUnlocked ? `(${formattedTime})` : ''}`
-                : `Chat with ${inPlaceChatFriend.name || inPlaceChatFriend.username || 'Friend'} ${isChatUnlocked ? `(${formattedTime})` : ''}`}
+                ? 'View Chessboard'
+                : `Chat with ${inPlaceChatFriend.name || inPlaceChatFriend.username || 'Friend'}`}
             </span>
           </button>
         )}
@@ -399,13 +339,13 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
             className="py-1.5 px-3 rounded-xl bg-amber-500/20 border border-amber-400 text-amber-300 text-xs font-bold flex items-center gap-1.5 animate-bounce shadow-lg cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Open Chat {isChatUnlocked ? `(${formattedTime})` : ''}</span>
+            <span>Open Chat</span>
           </button>
         )}
       </div>
 
-      {/* Main Content Area: Renders in-place WhatsApp Friend Chat or ChessBoard without unmounting */}
-      {inPlaceChatFriend && (
+      {/* Unmount embedded chat when leaving it so its socket, polling, and countdown stop. */}
+      {inPlaceChatFriend && activeBoardView === 'chat' && (
         <div className={`w-full rounded-3xl overflow-hidden border-2 border-amber-500/40 shadow-2xl bg-[#090e18] animate-in fade-in ${activeBoardView === 'chat' ? 'block' : 'hidden'}`}>
           <div className="px-4 py-2.5 bg-[#0b1424] border-b border-slate-800 flex items-center justify-between gap-3">
             <button

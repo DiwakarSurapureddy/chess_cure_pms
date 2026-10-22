@@ -1,24 +1,36 @@
+
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
+
 from fastapi import HTTPException, status
+from sqlalchemy import and_, asc, or_
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_, desc, asc
 
 from app.models.chat import ChatMessage, ChatUnlockSession
 from app.models.friend import FriendRequest
-from app.models.user import User
 
 
 class ChatService:
-    def is_friend(self, db: Session, user1_id: str, user2_id: str) -> bool:
-        """Verifies if two users are accepted friends."""
+    def is_friend(
+        self,
+        db: Session,
+        user1_id: str,
+        user2_id: str,
+    ) -> bool:
         accepted = db.query(FriendRequest).filter(
             FriendRequest.status == "accepted",
             or_(
-                and_(FriendRequest.sender_id == user1_id, FriendRequest.receiver_id == user2_id),
-                and_(FriendRequest.sender_id == user2_id, FriendRequest.receiver_id == user1_id),
-            )
+                and_(
+                    FriendRequest.sender_id == user1_id,
+                    FriendRequest.receiver_id == user2_id,
+                ),
+                and_(
+                    FriendRequest.sender_id == user2_id,
+                    FriendRequest.receiver_id == user1_id,
+                ),
+            ),
         ).first()
+
         return accepted is not None
 
     def get_or_create_unlock_session(
@@ -27,15 +39,20 @@ class ChatService:
         user1_id: str,
         user2_id: str,
     ) -> ChatUnlockSession:
-        """Retrieves or initializes a chat unlock session between two users."""
         session = db.query(ChatUnlockSession).filter(
             or_(
-                and_(ChatUnlockSession.user1_id == user1_id, ChatUnlockSession.user2_id == user2_id),
-                and_(ChatUnlockSession.user1_id == user2_id, ChatUnlockSession.user2_id == user1_id),
+                and_(
+                    ChatUnlockSession.user1_id == user1_id,
+                    ChatUnlockSession.user2_id == user2_id,
+                ),
+                and_(
+                    ChatUnlockSession.user1_id == user2_id,
+                    ChatUnlockSession.user2_id == user1_id,
+                ),
             )
         ).first()
 
-        if not session:
+        if session is None:
             session = ChatUnlockSession(
                 user1_id=user1_id,
                 user2_id=user2_id,
@@ -43,15 +60,17 @@ class ChatService:
                 expires_at=None,
                 unlock_reason="Not unlocked yet",
                 payment_status="none",
-                extended_count=0
+                extended_count=0,
             )
             db.add(session)
             db.commit()
             db.refresh(session)
         else:
-            # Check expiry
-            session.check_and_update_expiry()
-            db.commit()
+            was_unlocked = session.is_unlocked
+            is_active = session.check_and_update_expiry()
+
+            if was_unlocked and not is_active:
+                db.commit()
 
         return session
 
@@ -60,16 +79,35 @@ class ChatService:
         db: Session,
         user1_id: str,
         user2_id: str,
-        reason: str = "Opponent piece captured within 5 moves",
-        minutes: int = 5
+        reason: str = "Both players completed 5 legal moves each",
+        minutes: int = 5,
     ) -> ChatUnlockSession:
-        """Unlocks chat session for 5 minutes (Requirement 8 & 9)."""
-        session = self.get_or_create_unlock_session(db, user1_id, user2_id)
+        session = self.get_or_create_unlock_session(
+            db, user1_id, user2_id
+        )
+
+        # Do not reset the timer while the chat is active.
+        if session.check_and_update_expiry():
+            return session
+
+        # Do not automatically restart an expired session.
+        if session.unlocked_at is not None:
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Chat session has expired. "
+                    "It cannot be automatically restarted."
+                ),
+            )
+
         now = datetime.now(timezone.utc)
+
         session.is_unlocked = True
         session.unlocked_at = now
         session.expires_at = now + timedelta(minutes=minutes)
         session.unlock_reason = reason
+
         db.commit()
         db.refresh(session)
         return session
@@ -81,26 +119,45 @@ class ChatService:
         user2_id: str,
         amount: int = 10,
         payment_method: str = "demo_upi",
-        minutes: int = 5
+        minutes: int = 5,
     ) -> ChatUnlockSession:
-        """Extends chat timer by +5 minutes through simulated demo payment (Requirement 9 & 10)."""
-        session = self.get_or_create_unlock_session(db, user1_id, user2_id)
-        now = datetime.now(timezone.utc)
+        if amount != 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Demo extension requires exactly INR 10.",
+            )
 
-        # Extend from current expiry if active, or from now if expired
-        exp = session.expires_at
-        if exp and exp.tzinfo is None:
-            exp = exp.replace(tzinfo=timezone.utc)
+        session = self.get_or_create_unlock_session(
+            db, user1_id, user2_id
+        )
 
-        if session.is_unlocked and exp and exp > now:
-            session.expires_at = exp + timedelta(minutes=minutes)
-        else:
-            session.is_unlocked = True
-            session.unlocked_at = now
-            session.expires_at = now + timedelta(minutes=minutes)
+        # Extension is allowed only while the chat is active.
+        if not session.check_and_update_expiry():
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Chat has expired. "
+                    "Unlock it again before extending."
+                ),
+            )
 
+        expiry = session.expires_at
+
+        if expiry is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Chat has expired. Unlock it again before extending.",
+            )
+
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+
+        # Add five minutes to the existing expiry time.
+        session.expires_at = expiry + timedelta(minutes=minutes)
         session.payment_status = f"demo_paid_{amount}_inr"
         session.extended_count = (session.extended_count or 0) + 1
+
         db.commit()
         db.refresh(session)
         return session
@@ -110,15 +167,22 @@ class ChatService:
         db: Session,
         user1_id: str,
         user2_id: str,
-        limit: int = 100
+        limit: int = 100,
     ) -> List[ChatMessage]:
-        """Retrieves message history between two users."""
         return db.query(ChatMessage).filter(
             or_(
-                and_(ChatMessage.sender_id == user1_id, ChatMessage.receiver_id == user2_id),
-                and_(ChatMessage.sender_id == user2_id, ChatMessage.receiver_id == user1_id),
+                and_(
+                    ChatMessage.sender_id == user1_id,
+                    ChatMessage.receiver_id == user2_id,
+                ),
+                and_(
+                    ChatMessage.sender_id == user2_id,
+                    ChatMessage.receiver_id == user1_id,
+                ),
             )
-        ).order_by(asc(ChatMessage.created_at)).limit(limit).all()
+        ).order_by(
+            asc(ChatMessage.created_at)
+        ).limit(limit).all()
 
     def send_message(
         self,
@@ -126,32 +190,36 @@ class ChatService:
         sender_id: str,
         receiver_id: str,
         text: str,
-        game_id: Optional[str] = None
+        game_id: Optional[str] = None,
     ) -> ChatMessage:
-        """Sends a message. Validates friendship and chat unlock / timer (Requirement 5, 8, 9, 10)."""
         if not self.is_friend(db, sender_id, receiver_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Messaging allowed only between accepted friends."
+                detail="Messaging allowed only between accepted friends.",
             )
 
-        session = self.get_or_create_unlock_session(db, sender_id, receiver_id)
-        if not session.check_and_update_expiry():
+        clean_text = text.strip()
+
+        if not clean_text:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Chat is locked. Unlock by capturing an opponent's piece in an online chess match, or extend with ₹10 DEMO payment."
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Message cannot be empty.",
             )
 
-        msg = ChatMessage(
+        message = ChatMessage(
             sender_id=sender_id,
             receiver_id=receiver_id,
             game_id=game_id,
-            text=text.strip()
+            text=clean_text,
         )
-        db.add(msg)
+
+        db.add(message)
         db.commit()
-        db.refresh(msg)
-        return msg
+        db.refresh(message)
+
+        return message
 
 
 chat_service = ChatService()
+
+

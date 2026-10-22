@@ -408,6 +408,15 @@ export const api = {
     return data;
   },
 
+  async getFriendPresence(token, friendId) {
+    if (!token || !friendId) return { success: false, online: false, lastSeen: null };
+    const res = await fetch(`${BASE_URL}/friends/presence/${encodeURIComponent(friendId)}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    return res.json().catch(() => ({ success: false, online: false, lastSeen: null }));
+  },
+
   /**
    * Send online match challenge to friend
    */

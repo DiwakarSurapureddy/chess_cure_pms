@@ -51,8 +51,9 @@ export default function Login({ onNavigate, onLoginSuccess, initialEmail = '' })
   };
 
   const handleDemoFill = () => {
-    setIdentifier('grandmaster@chesscure.com');
-    setPassword('Checkmate2026!');
+    // Keep this in sync with the demo account created by seed_default_users.
+    setIdentifier('diwa@gmail.com');
+    setPassword('diwa123');
     setError('');
   };
 

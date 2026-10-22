@@ -20,6 +20,11 @@ if not raw_db_url or "YOUR_PASSWORD_HERE" in raw_db_url:
 if raw_db_url and raw_db_url.startswith("postgres://"):
     raw_db_url = raw_db_url.replace("postgres://", "postgresql://", 1)
 
+# Use the PostgreSQL driver declared in requirements.txt. SQLAlchemy can
+# otherwise select psycopg (v3), which is not installed by psycopg2-binary.
+if raw_db_url and raw_db_url.startswith("postgresql://"):
+    raw_db_url = raw_db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
 # Strip channel_binding=require if present for psycopg2 compatibility
 if raw_db_url and "channel_binding" in raw_db_url:
     raw_db_url = raw_db_url.replace("&channel_binding=require", "").replace("channel_binding=require&", "").replace("channel_binding=require", "")

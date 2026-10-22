@@ -156,7 +156,9 @@ export function AuthProvider({ children }) {
         fetchNotificationsOnly(token);
       }, 4000);
 
-      const handleFocus = () => fetchFriendsAndNotifications(token);
+      const handleFocus = () => {
+        fetchFriendsAndNotifications(token);
+      };
       window.addEventListener('focus', handleFocus);
 
       return () => {

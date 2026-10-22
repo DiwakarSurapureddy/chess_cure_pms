@@ -10,9 +10,60 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.friend import FriendRequest, MatchChallenge
+from app.models.presence import UserPresence
+from app.websockets.chat_connection_manager import chat_connection_manager
 from app.services.game_service import game_service
 
 router = APIRouter(tags=["Friends & Notifications"])
+
+@router.get("/presence/{friend_id}")
+def get_friend_presence(
+    friend_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return online status and last-seen time for an accepted friend."""
+    clean_id = friend_id.strip()
+    friend = db.query(User).filter(
+        or_(
+            User.id == clean_id,
+            User.player_id == clean_id,
+            User.username == clean_id,
+        )
+    ).first()
+    if not friend or friend.id == current_user.id:
+        raise HTTPException(status_code=404, detail="Friend not found.")
+
+    accepted = db.query(FriendRequest.id).filter(
+        FriendRequest.status == "accepted",
+        or_(
+            and_(
+                FriendRequest.sender_id == current_user.id,
+                FriendRequest.receiver_id == friend.id,
+            ),
+            and_(
+                FriendRequest.sender_id == friend.id,
+                FriendRequest.receiver_id == current_user.id,
+            ),
+        ),
+    ).first()
+    if not accepted:
+        raise HTTPException(status_code=403, detail="Presence is available to friends only.")
+
+    presence = db.query(UserPresence).filter(
+        UserPresence.user_id == friend.id
+    ).first()
+    last_seen = presence.last_seen if presence else None
+    if last_seen and last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=timezone.utc)
+    elif last_seen:
+        last_seen = last_seen.astimezone(timezone.utc)
+
+    return {
+        "success": True,
+        "online": chat_connection_manager.is_user_online(friend.id),
+        "lastSeen": last_seen.isoformat(timespec="milliseconds") if last_seen else None,
+    }
 
 class FriendRequestCreate(BaseModel):
     target_player_id: Optional[str] = None

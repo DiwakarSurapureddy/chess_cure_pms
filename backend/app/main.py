@@ -103,8 +103,8 @@ app.include_router(friends_router, prefix="/api/friends")
 app.include_router(friends_router, prefix="/friends")
 
 # Include Chat & Unlocks Router
-app.include_router(chat_router, prefix="/api/chat")
-app.include_router(chat_router, prefix="/chat")
+app.include_router(chat_router, prefix="/api/chat", include_in_schema=True)
+app.include_router(chat_router, prefix="/chat", include_in_schema=True)
 
 app.include_router(games.router)
 app.include_router(challenges.router)
