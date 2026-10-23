@@ -53,4 +53,11 @@ class Settings:
         "*"
     ]
 
+    # Optional Seed User Defaults (Safely loaded from .env, with generic fallbacks)
+    SEED_ADMIN_USERNAME: str = os.getenv("SEED_ADMIN_USERNAME", "admin_player")
+    SEED_ADMIN_EMAIL: str = os.getenv("SEED_ADMIN_EMAIL", "player@example.com")
+    SEED_ADMIN_MOBILE: str = os.getenv("SEED_ADMIN_MOBILE", "+1 555-0199")
+    SEED_ADMIN_PASSWORD: str = os.getenv("SEED_ADMIN_PASSWORD", "Chess@2026Secure")
+    SEED_BENSPIDY_ID: str = os.getenv("SEED_BENSPIDY_ID", "benspidy_oauth")
+
 settings = Settings()
