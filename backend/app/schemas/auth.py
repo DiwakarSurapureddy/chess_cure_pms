@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 class UserResponse(BaseModel):
     id: str
@@ -21,8 +21,7 @@ class UserResponse(BaseModel):
     playerId: Optional[str] = None
     createdAt: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, description="Desired username")
@@ -30,18 +29,13 @@ class RegisterRequest(BaseModel):
     mobileNumber: Optional[str] = Field(None, description="Optional mobile number")
     password: str = Field(..., min_length=6, description="Password with minimum 6 characters")
     skill: Optional[str] = Field("intermediate", description="beginner, intermediate, advanced, master")
+    otp: Optional[str] = Field(None, description="6-digit verification code sent to email or mobile")
 
 class LoginRequest(BaseModel):
     # 'email' field in frontend can be email, username, or phone number
     email: str = Field(..., description="Email address, username, or mobile number")
     password: str = Field(..., description="User password")
     rememberMe: Optional[bool] = Field(True, description="Keep user session logged in")
-
-class GoogleAuthRequest(BaseModel):
-    id_token: Optional[str] = None
-    email: Optional[str] = "player@gmail.com"
-    name: Optional[str] = "Google Player"
-    avatar: Optional[str] = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80"
 
 class FacebookAuthRequest(BaseModel):
     accessToken: Optional[str] = None
@@ -56,12 +50,19 @@ class OtpSendRequest(BaseModel):
     identifier: Optional[str] = None
     email: Optional[str] = None
     mobileNumber: Optional[str] = None
+    purpose: Optional[str] = Field("registration", description="registration or password_reset")
 
 class OtpVerifyRequest(BaseModel):
     identifier: Optional[str] = None
     email: Optional[str] = None
     mobileNumber: Optional[str] = None
     otp: str = Field(..., min_length=4, max_length=10)
+    purpose: Optional[str] = Field("registration", description="registration or password_reset")
+
+class ResetPasswordRequest(BaseModel):
+    identifier: str = Field(..., description="Email address or mobile number")
+    otp: str = Field(..., min_length=4, max_length=10, description="Verification code")
+    newPassword: str = Field(..., min_length=6, description="New password with minimum 6 characters")
 
 class UpdateProfileRequest(BaseModel):
     username: Optional[str] = None

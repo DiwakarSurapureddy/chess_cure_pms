@@ -6,6 +6,7 @@ frontend/dist/
 dist/
 .env
 .env.*
+!.env.example
 backend/.env
 frontend/.env
 *.log
@@ -14,6 +15,10 @@ venv/
 .venv/
 env/
 __pycache__/
+*.py[cod]
+*$py.class
+*.cpython-*.pyc
+.vscode/
 *.db
 *.sqlite
 *.sqlite3

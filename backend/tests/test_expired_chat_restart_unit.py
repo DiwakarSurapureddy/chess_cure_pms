@@ -43,7 +43,7 @@ def test_expired_chat_cannot_restart_automatically(monkeypatch):
     monkeypatch.setattr(
         chat_service,
         "get_or_create_unlock_session",
-        lambda db, user1_id, user2_id: session,
+        lambda db, user1_id, user2_id, game_id=None: session,
     )
 
     with pytest.raises(HTTPException) as exc:
@@ -67,7 +67,7 @@ def test_active_chat_timer_is_not_reset(monkeypatch):
     monkeypatch.setattr(
         chat_service,
         "get_or_create_unlock_session",
-        lambda db, user1_id, user2_id: session,
+        lambda db, user1_id, user2_id, game_id=None: session,
     )
 
     result = chat_service.unlock_chat(
@@ -88,7 +88,7 @@ def test_never_unlocked_chat_can_unlock_for_first_time(monkeypatch):
     monkeypatch.setattr(
         chat_service,
         "get_or_create_unlock_session",
-        lambda db, user1_id, user2_id: session,
+        lambda db, user1_id, user2_id, game_id=None: session,
     )
 
     result = chat_service.unlock_chat(

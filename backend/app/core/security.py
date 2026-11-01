@@ -1,3 +1,8 @@
+import bcrypt
+# Compatibility bridge between Passlib 1.7.4 and modern bcrypt 4.x in Python 3.14
+if not hasattr(bcrypt, "__about__"):
+    bcrypt.__about__ = type("about", (), {"__version__": bcrypt.__version__})
+
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
 from passlib.context import CryptContext

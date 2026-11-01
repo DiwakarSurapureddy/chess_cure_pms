@@ -82,7 +82,7 @@ export default function Landing({ onStartGame, onNavigate }) {
               <span className="block text-[#e5a93c] mt-1 font-extrabold">Move Smart.</span>
             </h1>
             <p className="text-slate-300/80 text-base sm:text-lg max-w-md font-normal leading-relaxed pt-1">
-              Sharpen your mind with tactical chess challenges, spar against AI bots, and track your career performance.
+              Elevate your strategic depth, spar against AI bots, play with friends, and track your career performance.
             </p>
           </div>
 
@@ -161,39 +161,6 @@ export default function Landing({ onStartGame, onNavigate }) {
           })}
         </div>
 
-        {/* Tactical Challenges Banner */}
-        <div 
-          onClick={() => onNavigate && onNavigate('challenges')}
-          className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0b1424] via-[#0e192c] to-[#0c1525] border border-[#1b283f] px-6 py-5 flex items-center justify-between cursor-pointer hover:border-amber-500/50 transition-all duration-300 shadow-xl group"
-        >
-          {/* Left section: Crown + Text */}
-          <div className="flex items-center gap-5 z-10">
-            <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-full border-[1.5px] border-amber-400/80 bg-amber-500/10 flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(229,169,60,0.2)]">
-              <Crown className="w-7 h-7 text-[#e5a93c] stroke-[2]" />
-            </div>
-
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="text-white font-bold text-base sm:text-lg tracking-tight">
-                  Complete challenges
-                </h4>
-                <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-[10px] font-bold uppercase">
-                  Easy to Master
-                </span>
-              </div>
-              <p className="text-slate-400 text-xs sm:text-sm mt-0.5">
-                Solve tactical puzzles and unlock special chat privileges
-              </p>
-            </div>
-          </div>
-
-          {/* Right section: Chevron */}
-          <div className="flex items-center gap-4 z-10">
-            <div className="w-9 h-9 rounded-full flex items-center justify-center text-slate-400 group-hover:text-white transition-colors">
-              <ChevronRight className="w-6 h-6 transition-transform group-hover:translate-x-1" />
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Footer / Quote Section */}

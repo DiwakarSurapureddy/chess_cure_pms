@@ -4,31 +4,46 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
+from datetime import datetime, timezone
+from app.core.security import get_password_hash
 from app.schemas.auth import (
     RegisterRequest,
     LoginRequest,
-    GoogleAuthRequest,
     FacebookAuthRequest,
     GuestAuthRequest,
     OtpSendRequest,
     OtpVerifyRequest,
+    ResetPasswordRequest,
     UpdateProfileRequest,
     AuthResponse,
 )
 from app.services.auth_service import (
     register_user,
     authenticate_user,
-    google_auth,
     facebook_auth,
     guest_auth,
 )
-from app.utils.otp import store_otp, verify_otp
+from app.utils.otp import create_and_send_otp, verify_otp_in_db, store_otp, verify_otp
+from app.services.delivery_service import resolve_delivery_target
 
 router = APIRouter(tags=["Authentication"])
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     """[POST] Registers a new user and returns their profile with JWT access token."""
+    # Enforce OTP verification before registration (Safeguard 1 & 2)
+    target = payload.email or payload.mobileNumber
+    if not payload.otp:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code (OTP) is required to complete registration."
+        )
+
+    try:
+        verify_otp_in_db(db=db, identifier=target, code=payload.otp, purpose="registration", consume=True)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+
     try:
         result = register_user(
             db=db,
@@ -190,28 +205,6 @@ def logout():
         "message": "Successfully logged out."
     }
 
-@router.post("/google", response_model=AuthResponse)
-def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db)):
-    """[POST] Social login via Google authentication."""
-    try:
-        result = google_auth(
-            db=db,
-            email=payload.email,
-            name=payload.name,
-            avatar=payload.avatar
-        )
-        return {
-            "success": True,
-            "message": "Google authentication successful.",
-            "token": result["token"],
-            "user": result["user"],
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Google authentication failed: {str(e)}"
-        )
-
 @router.post("/facebook", response_model=AuthResponse)
 def login_with_facebook(payload: FacebookAuthRequest, db: Session = Depends(get_db)):
     """[POST] Social login via Facebook authentication."""
@@ -252,36 +245,102 @@ def continue_as_guest(payload: GuestAuthRequest, db: Session = Depends(get_db)):
         )
 
 @router.post("/otp/send")
-def send_otp(payload: OtpSendRequest):
-    """[POST] Sends a 6-digit verification code to user email or mobile number."""
-    target = payload.identifier or payload.email or payload.mobileNumber
+def send_otp(payload: OtpSendRequest, db: Session = Depends(get_db)):
+    """[POST] Sends a 6-digit verification code to user email or mobile number with security safeguards and email priority."""
+    channel, target = resolve_delivery_target(
+        email=payload.email,
+        mobile_number=payload.mobileNumber,
+        identifier=payload.identifier
+    )
     if not target:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email or mobile number is required.")
     
-    otp_code = store_otp(target)
+    purpose = (payload.purpose or "registration").strip().lower()
+
+    # Safeguard 7: Account Enumeration Protection for password reset
+    if purpose == "password_reset":
+        user_exists = db.query(User).filter(
+            (User.email == target) |
+            (User.mobile_number == target)
+        ).first()
+        if not user_exists:
+            # Generic success message to prevent user enumeration
+            return {
+                "success": True,
+                "message": f"If an account is associated with {target}, a verification code has been dispatched.",
+                "channel": channel,
+                "identifier": target,
+                "expiresIn": 600,
+                "cooldownSeconds": 60
+            }
+
+    try:
+        create_and_send_otp(db=db, identifier=target, purpose=purpose)
+    except ValueError as e:
+        status_code = status.HTTP_429_TOO_MANY_REQUESTS if "wait" in str(e).lower() else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=str(e))
+
+    # Safeguard 11: Delivery Security -> Never expose plain OTP in API response
+    channel_label = "email" if channel == "email" else "mobile number"
     return {
         "success": True,
-        "message": f"Verification code sent to {target}.",
-        "otp": otp_code,
+        "message": f"Verification code sent to your {channel_label} ({target}).",
+        "channel": channel,
+        "identifier": target,
+        "expiresIn": 600,
+        "cooldownSeconds": 60
     }
 
 @router.post("/otp/verify")
-def verify_otp_code(payload: OtpVerifyRequest):
-    """[POST] Verifies a 6-digit OTP code."""
+def verify_otp_code(payload: OtpVerifyRequest, db: Session = Depends(get_db)):
+    """[POST] Verifies a 6-digit OTP code against secure hashed storage."""
     target = payload.identifier or payload.email or payload.mobileNumber
     if not target:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email or mobile number is required.")
     
-    is_valid = verify_otp(target, payload.otp)
-    if not is_valid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired verification code. Use 123456 or request a new code."
-        )
+    purpose = (payload.purpose or "registration").strip().lower()
+    try:
+        verify_otp_in_db(db=db, identifier=target, code=payload.otp, purpose=purpose, consume=False)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     
     return {
         "success": True,
         "message": "Verification code confirmed successfully."
+    }
+
+@router.post("/reset-password")
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """[POST] Securely resets user password after OTP verification."""
+    target = payload.identifier.strip().lower()
+    
+    # 1. Safeguards 1, 2, 4, 6: Verify and consume OTP for password_reset
+    try:
+        verify_otp_in_db(db=db, identifier=target, code=payload.otp, purpose="password_reset", consume=True)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+
+    # 2. Find user
+    user = db.query(User).filter(
+        (User.email == target) |
+        (User.mobile_number == payload.identifier.strip())
+    ).first()
+
+    if not user:
+        return {
+            "success": True,
+            "message": "Password reset processed successfully."
+        }
+
+    # 3. Safeguard 9: Hash new password using bcrypt
+    user.hashed_password = get_password_hash(payload.newPassword)
+    # 4. Safeguard 10: Invalidate existing sessions by updating user timestamp
+    user.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": "Password reset successfully. You can now log in with your new password."
     }
 
 @router.get("/demo-users")
@@ -301,6 +360,5 @@ def get_demo_users():
                 "password": "Checkmate2026!",
                 "rating": 2050
             }
-        ],
-        "testOtp": "123456"
+        ]
     }

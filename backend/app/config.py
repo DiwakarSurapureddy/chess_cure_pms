@@ -5,16 +5,16 @@ from dotenv import load_dotenv
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 # Load environment variables from .env
-load_dotenv(BACKEND_DIR / ".env")
-load_dotenv()
+load_dotenv(BACKEND_DIR / ".env", override=True)
+load_dotenv(override=True)
 
-# Cloud Neon PostgreSQL Database URL (Unified across all team members and environments)
-DEFAULT_NEON_URL = "postgresql://neondb_owner:npg_mMPI6FHs5uxb@ep-floral-fog-b3ljxoce-pooler.c-4.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"
+# Default to local SQLite if DATABASE_URL is not set
+DEFAULT_DB_URL = "sqlite:///./chess_cure.db"
 
 raw_db_url = os.getenv("DATABASE_URL")
-# If DATABASE_URL is not set or contains placeholders, always use Neon Cloud PostgreSQL
-if not raw_db_url or "YOUR_PASSWORD_HERE" in raw_db_url:
-    raw_db_url = DEFAULT_NEON_URL
+# If DATABASE_URL is not set or contains placeholders, default to local SQLite
+if not raw_db_url or "YOUR_PASSWORD_HERE" in raw_db_url or "YOUR_DATABASE_URL_HERE" in raw_db_url:
+    raw_db_url = DEFAULT_DB_URL
 
 # SQLAlchemy 2.0 requires 'postgresql://' instead of legacy 'postgres://'
 if raw_db_url and raw_db_url.startswith("postgres://"):
@@ -59,5 +59,48 @@ class Settings:
     SEED_ADMIN_MOBILE: str = os.getenv("SEED_ADMIN_MOBILE", "+1 555-0199")
     SEED_ADMIN_PASSWORD: str = os.getenv("SEED_ADMIN_PASSWORD", "Chess@2026Secure")
     SEED_BENSPIDY_ID: str = os.getenv("SEED_BENSPIDY_ID", "benspidy_oauth")
+
+    # SMTP Email Delivery Configuration (Dynamically resolved from .env)
+    @property
+    def SMTP_HOST(self) -> str:
+        return os.getenv("SMTP_HOST", "").strip()
+
+    @property
+    def SMTP_PORT(self) -> int:
+        try:
+            return int(os.getenv("SMTP_PORT", "587"))
+        except (ValueError, TypeError):
+            return 587
+
+    @property
+    def SMTP_USER(self) -> str:
+        return os.getenv("SMTP_USER", "").strip()
+
+    @property
+    def SMTP_PASSWORD(self) -> str:
+        return os.getenv("SMTP_PASSWORD", "").strip()
+
+    @property
+    def SMTP_FROM_EMAIL(self) -> str:
+        return os.getenv("SMTP_FROM_EMAIL", "").strip() or self.SMTP_USER or "no-reply@chesscure.com"
+
+    @property
+    def SMTP_FROM_NAME(self) -> str:
+        return os.getenv("SMTP_FROM_NAME", "ChessCure Security").strip()
+
+    @property
+    def SMTP_TLS(self) -> bool:
+        return os.getenv("SMTP_TLS", "true").lower() in ("true", "1", "yes")
+
+    @property
+    def SMTP_SSL(self) -> bool:
+        return os.getenv("SMTP_SSL", "false").lower() in ("true", "1", "yes")
+
+    # SMS Mobile Delivery Configuration (Twilio / Generic Gateway)
+    TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    TWILIO_FROM_NUMBER: str = os.getenv("TWILIO_FROM_NUMBER", "")
+    SMS_API_KEY: str = os.getenv("SMS_API_KEY", "")
+    SMS_GATEWAY_URL: str = os.getenv("SMS_GATEWAY_URL", "")
 
 settings = Settings()

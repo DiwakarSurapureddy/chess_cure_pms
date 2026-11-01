@@ -12,12 +12,17 @@ class ConnectionManager:
         game_id: str,
         websocket: WebSocket,
     ):
-        await websocket.accept()
+        try:
+            await websocket.accept()
+        except RuntimeError:
+            # WebSocket was already accepted earlier
+            pass
 
         if game_id not in self.active_connections:
             self.active_connections[game_id] = []
 
-        self.active_connections[game_id].append(websocket)
+        if websocket not in self.active_connections[game_id]:
+            self.active_connections[game_id].append(websocket)
 
     def disconnect(
         self,
@@ -55,7 +60,10 @@ class ConnectionManager:
         websocket: WebSocket,
         message: dict,
     ):
-        await websocket.send_json(message)
+        try:
+            await websocket.send_json(message)
+        except Exception:
+            pass
 
 
 connection_manager = ConnectionManager()

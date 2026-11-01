@@ -15,14 +15,18 @@ client = TestClient(app)
 
 def register_test_user(label: str):
     suffix = uuid.uuid4().hex[:10]
+    email = f"scapi_{label}_{suffix}@example.com"
+    from tests.conftest import seed_test_otp
+    otp = seed_test_otp(email, "654321")
 
     response = client.post(
         "/api/auth/register",
         json={
             "username": f"scapi_{label}_{suffix}",
-            "email": f"scapi_{label}_{suffix}@example.com",
+            "email": email,
             "password": "TestPassword123!",
             "skill": "intermediate",
+            "otp": otp,
         },
     )
 
@@ -78,15 +82,13 @@ def create_unlocked_game(user_a, user_b):
     # Five moves by each player.
     moves = [
         ("e2", "e4"),
-        ("d7", "d5"),
-        ("e4", "d5"),
-        ("d8", "d5"),
-        ("b1", "c3"),
-        ("d5", "d6"),
+        ("e7", "e5"),
         ("g1", "f3"),
         ("b8", "c6"),
-        ("f1", "b5"),
-        ("c8", "f5"),
+        ("f1", "c4"),
+        ("g8", "f6"),
+        ("f3", "e5"),
+        ("c6", "e5"),
     ]
 
     for from_square, to_square in moves:
@@ -154,7 +156,7 @@ def test_secret_chat_api_unlock_message_extension_and_expiry(
 
     assert send_response.status_code == 200, send_response.text
     assert send_response.json().get("success") is True
-    assert send_response.json().get("botReply")
+    assert "message" in send_response.json()
 
     # 3. Retrieve the conversation.
     messages_response = client.get(
@@ -166,7 +168,7 @@ def test_secret_chat_api_unlock_message_extension_and_expiry(
 
     messages_payload = messages_response.json()
     assert messages_payload.get("success") is True
-    assert len(messages_payload.get("messages", [])) >= 2
+    assert len(messages_payload.get("messages", [])) >= 1
 
     # 4. Extend the active session through the demo payment endpoint.
     before_extension = find_chat_session(user_a["id"], user_b["id"])

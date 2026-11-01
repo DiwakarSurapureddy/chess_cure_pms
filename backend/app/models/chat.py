@@ -71,6 +71,8 @@ class ChatUnlockSession(Base):
         String(255),
         default="Opponent piece captured within 5 moves",
     )
+    game_id = Column(String(36), nullable=True, index=True)
+    unlock_count = Column(Integer, default=0)
     payment_status = Column(String(50), default="none")
     extended_count = Column(Integer, default=0)
     created_at = Column(
@@ -125,19 +127,28 @@ class ChatUnlockSession(Base):
         remaining = self.get_remaining_seconds()
         is_active = self.is_unlocked and remaining > 0
 
+        exp_iso = None
+        if self.expires_at:
+            exp_dt = self._normalize_dt(self.expires_at)
+            exp_iso = exp_dt.isoformat() if exp_dt else None
+
+        unlocked_iso = None
+        if self.unlocked_at:
+            unlocked_dt = self._normalize_dt(self.unlocked_at)
+            unlocked_iso = unlocked_dt.isoformat() if unlocked_dt else None
+
         return {
             "id": self.id,
             "user1Id": self.user1_id,
             "user2Id": self.user2_id,
             "isUnlocked": is_active,
-            "unlockedAt": (
-                self.unlocked_at.isoformat() if self.unlocked_at else None
-            ),
-            "expiresAt": (
-                self.expires_at.isoformat() if self.expires_at else None
-            ),
+            "unlockedAt": unlocked_iso,
+            "expiresAt": exp_iso,
             "timeRemainingSeconds": remaining,
             "unlockReason": self.unlock_reason,
             "paymentStatus": self.payment_status,
             "extendedCount": self.extended_count,
+            "gameId": self.game_id,
+            "unlockCount": self.unlock_count,
+            "priceInr": 10,
         }

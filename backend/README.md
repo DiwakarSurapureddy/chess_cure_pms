@@ -97,14 +97,12 @@ backend/
 │   │   ├── exceptions.py       # Custom HTTP error exceptions
 │   │   └── security.py         # OAuth2 password bearer schemes
 │   ├── models/
-│   │   ├── challenge.py        # Challenge database models
 │   │   ├── chat.py             # Chat room & message models
 │   │   ├── game.py             # Chess game records & career models
 │   │   ├── profile.py          # User profile & statistics models
 │   │   └── user.py             # User account models
 │   ├── routers/
 │   │   ├── auth.py             # Signup, login, social auth, OTP
-│   │   ├── challenges.py       # Tactical puzzles & challenges
 │   │   ├── chat.py             # Secret chat endpoints
 │   │   ├── games.py            # Game matchmaking & move history
 │   │   ├── profile.py          # Career stats & user profile
@@ -112,14 +110,12 @@ backend/
 │   │   └── users.py            # User management
 │   ├── schemas/
 │   │   ├── auth.py             # Pydantic request/response schemas
-│   │   ├── challenge.py
 │   │   ├── chat.py
 │   │   ├── game.py
 │   │   ├── profile.py
 │   │   └── user.py
 │   ├── services/
 │   │   ├── auth_service.py     # Auth business logic
-│   │   ├── challenge_service.py# Puzzle scoring logic
 │   │   ├── chat_service.py     # Chat message handling
 │   │   ├── chess_engine.py     # python-chess move validation
 │   │   ├── game_service.py     # Match state logic
@@ -157,15 +153,14 @@ backend/
 
 ---
 
-## Chess Game and Challenge APIs
+## Chess Game APIs
 
-The backend also provides chess game, real-time multiplayer, and challenge endpoints:
+The backend also provides chess game and real-time multiplayer endpoints:
 
 - `POST /api/games` and `GET /api/games` to create and list chess games
 - `GET /api/games/{game_id}` and `POST /api/games/{game_id}/move` to inspect a game and play a move
 - `POST /api/games/{game_id}/computer-move` and `POST /api/games/{game_id}/play-computer` to play against the computer
 - `WebSocket /api/games/{game_id}/ws` for real-time multiplayer games
-- `POST /api/challenges`, `GET /api/challenges`, and `POST /api/challenges/{challenge_id}/solve` for chess challenges
 - `GET /api/board`, `POST /api/move`, and `POST /api/reset` for the simple computer-play board
 
 See the interactive API documentation at `/docs` for request formats and the full endpoint list.

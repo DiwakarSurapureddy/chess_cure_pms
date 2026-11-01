@@ -4,7 +4,7 @@ import uuid
 
 import chess
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, String, Text, DateTime, Integer, ForeignKey
+from sqlalchemy import Column, String, Text, DateTime, Integer, ForeignKey, Boolean
 
 from app.database import Base
 
@@ -50,6 +50,13 @@ class GameDB(Base):
     result = Column(String, nullable=True)
     winner = Column(String, nullable=True)
 
+    chat_unlocked = Column(Boolean, default=False)
+    chat_unlock_count = Column(Integer, default=0)
+    chat_expires_at = Column(String, nullable=True)
+    chat_unlock_reason = Column(String, nullable=True)
+    round1_unlock_ply = Column(Integer, nullable=True)
+    round2_window_start_ply = Column(Integer, nullable=True)
+
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
 
@@ -78,6 +85,7 @@ class Game:
         self.chat_unlocked = False
         self.chat_unlock_count = 0  # Maximum 2 times per game
         self.round1_unlock_ply: Optional[int] = None
+        self.round2_window_start_ply: Optional[int] = None
         self.chat_unlock_reason: Optional[str] = None
         self.chat_expires_at: Optional[str] = None
 
@@ -92,6 +100,11 @@ class Game:
         self.status = "cancelled"
         self.result = "cancelled"
         self.updated_at = datetime.now(UTC)
+
+    def notify_round1_resumed(self):
+        """Called when chat expires or players resume board after round 1."""
+        if self.chat_unlock_count == 1 and self.round2_window_start_ply is None:
+            self.round2_window_start_ply = len(self.moves) + 1
 
     def extend_chat(self, minutes: int = 5):
         self.chat_unlocked = True
@@ -164,43 +177,6 @@ class Game:
             else:
                 self.captured_pieces["black"].append(captured_symbol)
 
-            # Chat unlock requirement: maximum 2 times per game
-            # Round 1: capture within first 5 moves (move_number <= 5)
-            # Round 2: capture within next 5 moves (10 half-moves / plies) after Round 1
-            now_utc = datetime.now(UTC)
-            is_active = False
-            if self.chat_unlocked and self.chat_expires_at:
-                try:
-                    exp = datetime.fromisoformat(self.chat_expires_at.replace("Z", "+00:00"))
-                    if exp > now_utc:
-                        is_active = True
-                    else:
-                        self.chat_unlocked = False
-                except Exception:
-                    self.chat_unlocked = False
-
-            cur_ply = len(self.moves) + 1  # 1-indexed ply count for this move
-            can_unlock = False
-            reason = None
-
-            if self.chat_unlock_count == 0:
-                if move_number <= 5:
-                    can_unlock = True
-                    self.chat_unlock_count = 1
-                    self.round1_unlock_ply = cur_ply
-                    reason = f"{player} captured opponent piece ({captured_symbol.upper()}) on move {move_number} (Chat 1 of 2)"
-            elif self.chat_unlock_count == 1 and not is_active:
-                plies_since_r1 = cur_ply - (self.round1_unlock_ply or 0)
-                if plies_since_r1 <= 10:
-                    can_unlock = True
-                    self.chat_unlock_count = 2
-                    reason = f"{player} captured opponent piece ({captured_symbol.upper()}) within 5 moves (Chat 2 of 2)"
-
-            if can_unlock:
-                self.chat_unlocked = True
-                self.chat_unlock_reason = reason
-                self.chat_expires_at = (now_utc + timedelta(minutes=5)).isoformat()
-
         self.board.push(move)
 
         move_data = {
@@ -216,6 +192,51 @@ class Game:
 
         self.moves.append(move.uci())
         self.move_history.append(move_data)
+        # Chat unlock evaluation (max 2 free unlocks per game)
+        total_plies = len(self.moves)
+        p1_moves = total_plies // 2 + (total_plies % 2)
+        p2_moves = total_plies // 2
+        now_utc = datetime.now(UTC)
+
+        is_active = False
+        if self.chat_unlocked and self.chat_expires_at:
+            try:
+                exp = datetime.fromisoformat(self.chat_expires_at.replace("Z", "+00:00"))
+                if exp > now_utc:
+                    is_active = True
+                else:
+                    self.chat_unlocked = False
+            except Exception:
+                self.chat_unlocked = False
+
+        # Round 1: Play Online Chat Unlock Logic
+        # Each player gets a 5-move window.
+        # Chat must unlock ONLY when a capture happens on the 4th or 5th move of either player within that window.
+        # Moves 1, 2, 3: Captures must NOT unlock chat.
+        # Move 4: If either player captures, unlock chat immediately.
+        # Move 5: If no capture happened on move 4, capture on move 5 unlocks chat.
+        # If neither player captures on moves 4 or 5, chat remains locked.
+        # Captures on all other moves (moves 1-3, 6+) must NOT unlock chat.
+        if self.chat_unlock_count == 0:
+            if is_capture and move_number in (4, 5):
+                self.chat_unlocked = True
+                self.chat_unlock_count = 1
+                self.round1_unlock_ply = total_plies
+                self.chat_expires_at = (now_utc + timedelta(minutes=5)).isoformat()
+                cap_sym = captured_symbol.upper() if captured_symbol else "PIECE"
+                self.chat_unlock_reason = f"{player} captured opponent piece ({cap_sym}) on move {move_number} (Chat 1 of 2)"
+
+        # Round 2: After returning to board, capture in window 2 (next 5 moves / 10 plies) unlocks Round 2
+        elif self.chat_unlock_count == 1 and not is_active:
+            if self.round2_window_start_ply is None:
+                self.round2_window_start_ply = total_plies
+            plies_in_w2 = total_plies - self.round2_window_start_ply + 1
+            if is_capture and plies_in_w2 <= 10:
+                self.chat_unlocked = True
+                self.chat_unlock_count = 2
+                self.chat_expires_at = (now_utc + timedelta(minutes=5)).isoformat()
+                cap_sym = captured_symbol.upper() if captured_symbol else "PIECE"
+                self.chat_unlock_reason = f"{player} captured opponent piece ({cap_sym}) in second 5-move window (Chat 2 of 2)"
 
         self.updated_at = datetime.now(UTC)
 
@@ -284,6 +305,9 @@ class Game:
             "chat_unlock_reason": self.chat_unlock_reason,
             "chat_expires_at": self.chat_expires_at,
             "chat_time_remaining": time_remaining,
+            "round1_unlock_ply": self.round1_unlock_ply,
+            "round2_window_start_ply": self.round2_window_start_ply,
+            "max_free_unlocks": 2,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -292,8 +316,10 @@ class Game:
 class GameCreateRequest(BaseModel):
     player1: str = Field(default="player1")
     player2: str = Field(default="player2")
+    game_id: Optional[str] = None
 
 
 class MoveRequest(BaseModel):
     from_square: str
     to_square: str
+    session_id: Optional[str] = None

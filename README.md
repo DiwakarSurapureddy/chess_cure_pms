@@ -182,7 +182,6 @@ You can register a new account instantly with username and password, or use any 
 
 | Username | Email | Password | Role / Starting Elo |
 | :--- | :--- | :--- | :--- |
-| **Google** | `google[EMAIL_ADDRESS]` | `GOOG123` | Grandmaster (2420) |
 | **facebook_chess** | `facebook_chess@gmail.com` | `facebook_chess123` | Master (2150) |
 | **guest** | *(Instant Login)* | *(No Password)* | Local Guest Mode |
 

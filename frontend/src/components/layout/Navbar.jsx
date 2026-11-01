@@ -129,7 +129,7 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
     {
       id: 3,
       title: 'Think Ahead, Move Smart',
-      desc: 'Master the Queen’s Gambit in our featured tactical challenges.',
+      desc: 'Master the Queen’s Gambit in live chess matches.',
       time: '1d ago',
       unread: false,
       action: false,
@@ -283,22 +283,6 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
                 )}
               </div>
               {(activeTab === 'chat' || isChatUnlocked) && (
-                <span className="w-5 h-[2px] nav-active-glow-dash rounded-full mt-1" />
-              )}
-            </button>
-
-            {/* 3. Challenges Tab */}
-            <button
-              onClick={() => handleNavClick('challenges')}
-              className={`px-3.5 py-1.5 flex flex-col items-center justify-center transition-all group relative ${
-                activeTab === 'challenges' ? 'text-amber-300 font-bold' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Trophy className={`w-4 h-4 group-hover:scale-110 transition-all ${
-                activeTab === 'challenges' ? 'text-amber-400' : 'text-slate-400 group-hover:text-amber-300'
-              }`} />
-              <span className="text-[11px] font-medium tracking-wide mt-1">Challenges</span>
-              {activeTab === 'challenges' && (
                 <span className="w-5 h-[2px] nav-active-glow-dash rounded-full mt-1" />
               )}
             </button>
@@ -657,18 +641,6 @@ export default function Navbar({ activeTab = 'home', onTabChange }) {
               ) : (
                 <span className="text-[10px] text-slate-500 font-mono">Secret</span>
               )}
-            </button>
-
-            <button
-              onClick={() => handleNavClick('challenges')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                activeTab === 'challenges'
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                  : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
-              }`}
-            >
-              <Trophy className="w-4 h-4 text-amber-400" />
-              <span>Challenges</span>
             </button>
 
             <button

@@ -8,11 +8,14 @@ def get_or_create_partner():
     login_res = client.post("/api/auth/login", json={"email": "partner@chesscure.com", "password": "PartnerPassword123!"})
     if login_res.status_code == 200:
         return login_res.json()["token"], login_res.json()["user"]["playerId"]
+    from tests.conftest import seed_test_otp
+    otp = seed_test_otp("partner@chesscure.com", "654321")
     reg_res = client.post("/api/auth/register", json={
         "username": "ChessPartnerUser",
         "email": "partner@chesscure.com",
         "password": "PartnerPassword123!",
-        "skill": "intermediate"
+        "skill": "intermediate",
+        "otp": otp
     })
     return reg_res.json()["token"], reg_res.json()["user"]["playerId"]
 

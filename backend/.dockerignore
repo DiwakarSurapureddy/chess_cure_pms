@@ -1,0 +1,48 @@
+# ==============================================================================
+# ChessCure PMS Backend - Docker Build Ignore File
+# Prevents host-specific virtual environments, secrets, caches, and test artifacts
+# from being copied into the container image during 'COPY . .'
+# ==============================================================================
+
+# Virtual environments (host-specific binaries)
+venv/
+.venv/
+env/
+.env_*/
+
+# Byte-compiled / optimized Python files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment files and secrets (prevent secret leaks into container images)
+.env
+.env.*
+!.env.example
+
+# Testing, coverage, and pytest caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local SQLite databases
+*.db
+*.sqlite3
+
+# IDE, editor, and OS metadata
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Git metadata
+.git/
+.gitignore
+
+# Temporary files, logs, and backups
+tmp/
+temp/
+*.log
+*.bak

@@ -12,6 +12,15 @@ const formatTime = (secs) => {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 };
 
+export const parseUtcDate = (d) => {
+  if (!d) return null;
+  if (d instanceof Date) return d;
+  const s = String(d).trim();
+  if (!s) return null;
+  const hasTz = s.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(s);
+  return new Date(hasTz ? s : s + 'Z');
+};
+
 export function SecretChatProvider({ children }) {
   const [session, setSession] = useState(() => {
     try {
@@ -19,7 +28,8 @@ export function SecretChatProvider({ children }) {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed?.expiresAt) {
-          const remaining = Math.max(0, Math.floor((new Date(parsed.expiresAt).getTime() - Date.now()) / 1000));
+          const expDate = parseUtcDate(parsed.expiresAt);
+          const remaining = expDate ? Math.max(0, Math.floor((expDate.getTime() - Date.now()) / 1000)) : 0;
           if (remaining > 0) {
             return {
               isUnlocked: true,
@@ -51,7 +61,8 @@ export function SecretChatProvider({ children }) {
       if (timerRef.current) clearInterval(timerRef.current);
 
       const tick = () => {
-        const expTime = new Date(session.expiresAt).getTime();
+        const expDate = parseUtcDate(session.expiresAt);
+        const expTime = expDate ? expDate.getTime() : 0;
         const now = Date.now();
         const diff = Math.max(0, Math.floor((expTime - now) / 1000));
 
@@ -99,7 +110,8 @@ export function SecretChatProvider({ children }) {
       ? params.expiresAt
       : new Date(Date.now() + durationSeconds * 1000).toISOString();
 
-    const remainingSecs = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+    const expDate = parseUtcDate(expiresAt);
+    const remainingSecs = expDate ? Math.max(0, Math.floor((expDate.getTime() - Date.now()) / 1000)) : durationSeconds;
     const effectiveRemaining = remainingSecs > 0 ? remainingSecs : durationSeconds;
 
     const newSession = {

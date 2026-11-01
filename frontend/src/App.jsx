@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { useAuth } from './context/AuthContext';
 import { SecretChatProvider, useSecretChat } from './context/SecretChatContext';
 import Navbar from './components/layout/Navbar';
 import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
-import ChessChallenge from './pages/ChessChallenge';
 import Profile from './pages/Profile';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -14,7 +13,7 @@ import Chat from './pages/Chat';
 import { Swords, X, Users, User, ArrowRight, Loader2, Sparkles, Trophy, Hash, Search } from 'lucide-react';
 
 const VIEW_STORAGE_KEY = 'cc_active_view';
-const VALID_VIEWS = ['home', 'play', 'challenges', 'profile', 'settings', 'login', 'signup', 'forgot-password', 'chat'];
+const VALID_VIEWS = ['home', 'play', 'profile', 'settings', 'login', 'signup', 'forgot-password', 'chat'];
 
 function getInitialView() {
   try {
@@ -213,17 +212,14 @@ function AppContent() {
           <Landing onStartGame={handleStartGame} onNavigate={(tab) => navigateTo(tab)} />
         )}
 
-        {currentView === 'play' && (
+        {/* Dashboard is kept mounted so chess board state (board, moves, FEN, timers) is NEVER destroyed when navigating to chat */}
+        <div className={currentView === 'play' ? 'w-full flex-1 flex flex-col justify-center' : 'hidden'}>
           <Dashboard
             key={selectedGameMode}
             initialMode={selectedGameMode}
             onNavigate={(tab) => navigateTo(tab)}
           />
-        )}
-
-        {currentView === 'challenges' && (
-          <ChessChallenge onNavigate={(tab) => navigateTo(tab)} />
-        )}
+        </div>
 
         {currentView === 'profile' && (
           <Profile onNavigate={(tab) => navigateTo(tab)} />
@@ -416,10 +412,8 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <SecretChatProvider>
-        <AppContent />
-      </SecretChatProvider>
-    </AuthProvider>
+    <SecretChatProvider>
+      <AppContent />
+    </SecretChatProvider>
   );
 }

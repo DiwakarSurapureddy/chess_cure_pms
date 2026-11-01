@@ -101,7 +101,6 @@ def get_portal_html() -> str:
     .btn-primary { background: linear-gradient(135deg, var(--primary), var(--primary-hover)); color: #000; }
     .btn-secondary { background: #1e293b; color: #fff; border: 1px solid #334155; }
     .btn-danger { background: rgba(248, 113, 113, 0.15); color: var(--accent-red); border: 1px solid rgba(248, 113, 113, 0.3); }
-    .btn-google { background: #fff; color: #1f2937; margin-bottom: 10px; }
     .btn-facebook { background: #1877f2; color: #fff; margin-bottom: 10px; }
     .btn-guest { background: rgba(229, 169, 60, 0.15); color: var(--primary); border: 1px solid rgba(229, 169, 60, 0.3); }
     .logged-user-card {
@@ -233,7 +232,6 @@ def get_portal_html() -> str:
         <div id="social-tab" class="tab-content">
           <div class="card-title">Social & Instant Guest Auth</div>
           <p class="card-sub">All social and guest logins are stored in SQLite database.</p>
-          <button class="btn btn-google" onclick="handleSocial('google')">Continue with Google (POST /api/auth/google)</button>
           <button class="btn btn-facebook" onclick="handleSocial('facebook')">Continue with Facebook (POST /api/auth/facebook)</button>
           <button class="btn btn-guest" onclick="handleSocial('guest')">⚡ Play Instantly as Guest (POST /api/auth/guest)</button>
         </div>

@@ -3,8 +3,13 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user
+from app.config import settings
 from app.models.user import User
 from app.models.profile import UserPreference
+from app.models.game import CareerGame
+from app.models.friend import FriendRequest, MatchChallenge
+from app.models.chat import ChatMessage, ChatUnlockSession
+from app.models.presence import UserPresence
 from app.core.security import verify_password, get_password_hash
 from app.schemas.profile import (
     PreferencesUpdateRequest,
@@ -92,13 +97,36 @@ def delete_account(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """[DELETE] Permanently deletes the current user account and preferences."""
-    # Delete preferences
-    db.query(UserPreference).filter(UserPreference.user_id == current_user.id).delete()
-    # Delete user
-    db.delete(current_user)
-    db.commit()
-    return {
-        "success": True,
-        "message": "Your ChessCure account has been permanently removed."
-    }
+    """[DELETE] Permanently deletes the current user account and all child records within a single safe transaction."""
+    # Safeguard: Prevent accidental deletion of primary seed administrative accounts
+    admin_email = (getattr(settings, "SEED_ADMIN_EMAIL", None) or "admin@chesscure.local").strip().lower()
+    if current_user.email.lower() == admin_email or current_user.player_id in ("100001", "100002", "100003"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Primary seed accounts cannot be deleted."
+        )
+
+    uid = current_user.id
+    try:
+        # Delete dependent child rows within a single atomic transaction
+        db.query(UserPreference).filter(UserPreference.user_id == uid).delete(synchronize_session=False)
+        db.query(CareerGame).filter(CareerGame.user_id == uid).delete(synchronize_session=False)
+        db.query(FriendRequest).filter((FriendRequest.sender_id == uid) | (FriendRequest.receiver_id == uid)).delete(synchronize_session=False)
+        db.query(MatchChallenge).filter((MatchChallenge.sender_id == uid) | (MatchChallenge.receiver_id == uid)).delete(synchronize_session=False)
+        db.query(ChatMessage).filter((ChatMessage.sender_id == uid) | (ChatMessage.receiver_id == uid)).delete(synchronize_session=False)
+        db.query(ChatUnlockSession).filter((ChatUnlockSession.user1_id == uid) | (ChatUnlockSession.user2_id == uid)).delete(synchronize_session=False)
+        db.query(UserPresence).filter(UserPresence.user_id == uid).delete(synchronize_session=False)
+        
+        # Delete user
+        db.delete(current_user)
+        db.commit()
+        return {
+            "success": True,
+            "message": "Your ChessCure account has been permanently removed."
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete account cleanly: {str(e)}"
+        )

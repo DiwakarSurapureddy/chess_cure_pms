@@ -31,7 +31,7 @@ def test_sync_secret_chat_does_not_restart_expired_session(monkeypatch):
     monkeypatch.setattr(
         games.chat_service,
         "get_or_create_unlock_session",
-        lambda db, user1_id, user2_id: expired_session,
+        lambda db, user1_id, user2_id, game_id=None: expired_session,
     )
 
     unlock_mock = MagicMock()
@@ -78,7 +78,7 @@ def test_sync_secret_chat_unlocks_never_unlocked_session(monkeypatch):
     monkeypatch.setattr(
         games.chat_service,
         "get_or_create_unlock_session",
-        lambda db, user1_id, user2_id: new_session,
+        lambda db, user1_id, user2_id, game_id=None: new_session,
     )
 
     unlock_mock = MagicMock()

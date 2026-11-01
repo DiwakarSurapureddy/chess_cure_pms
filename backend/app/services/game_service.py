@@ -1,11 +1,14 @@
 import json
 import uuid
-from typing import Dict
+from typing import Dict, List, Optional
 
 import chess
 from sqlalchemy.orm import Session
 
 from app.models.game import Game, GameDB
+from app.models.user import User
+from app.models.friend import FriendRequest
+from app.models.chat import ChatUnlockSession
 from app.services.chess_engine import ChessEngine
 
 
@@ -18,17 +21,18 @@ class GameService:
         player1: str = "player1",
         player2: str = "player2",
         db: Session = None,
+        game_id: Optional[str] = None,
     ) -> Game:
 
-        game_id = str(uuid.uuid4())
+        target_id = game_id or str(uuid.uuid4())
 
         game = Game(
-            game_id=game_id,
+            game_id=target_id,
             player1=player1,
             player2=player2,
         )
 
-        self.games[game_id] = game
+        self.games[target_id] = game
 
         if db:
             db_game = GameDB(
@@ -56,7 +60,10 @@ class GameService:
     ) -> Game | None:
 
         if game_id in self.games:
-            return self.games[game_id]
+            game = self.games[game_id]
+            if db:
+                self._restore_secret_chat_state(game, db)
+            return game
 
         if db:
             db_game = (
@@ -84,12 +91,132 @@ class GameService:
                 game.winner = db_game.winner
                 game.created_at = db_game.created_at
                 game.updated_at = db_game.updated_at
+                game.chat_unlocked = getattr(db_game, "chat_unlocked", False)
+                game.chat_unlock_count = getattr(db_game, "chat_unlock_count", 0)
+                game.chat_expires_at = getattr(db_game, "chat_expires_at", None)
+                game.chat_unlock_reason = getattr(db_game, "chat_unlock_reason", None)
+                game.round1_unlock_ply = getattr(db_game, "round1_unlock_ply", None)
+                game.round2_window_start_ply = getattr(db_game, "round2_window_start_ply", None)
+
+                self._restore_secret_chat_state(game, db)
 
                 self.games[game_id] = game
 
                 return game
 
         return None
+
+    def _restore_secret_chat_state(self, game, db: Session = None):
+        if not db or not game:
+            return
+
+        p1 = getattr(game, "player1", None)
+        p2 = getattr(game, "player2", None)
+        if not p1 or not p2:
+            return
+
+        u1 = db.query(User).filter(User.username == p1).first()
+        u2 = db.query(User).filter(User.username == p2).first()
+        if not u1 or not u2:
+            return
+
+        friendship = db.query(FriendRequest).filter(
+            (
+                (FriendRequest.sender_id == u1.id) & (FriendRequest.receiver_id == u2.id)
+            ) | (
+                (FriendRequest.sender_id == u2.id) & (FriendRequest.receiver_id == u1.id)
+            ),
+            FriendRequest.status == "accepted",
+        ).first()
+
+        if not friendship:
+            return
+
+        session = db.query(ChatUnlockSession).filter(
+            (
+                (ChatUnlockSession.user1_id == u1.id) & (ChatUnlockSession.user2_id == u2.id)
+            ) | (
+                (ChatUnlockSession.user1_id == u2.id) & (ChatUnlockSession.user2_id == u1.id)
+            )
+        ).first()
+
+        if session:
+            is_valid = session.check_and_update_expiry() if hasattr(session, "check_and_update_expiry") else getattr(session, "is_unlocked", False)
+            if is_valid:
+                game.chat_unlocked = True
+                game.chat_unlock_reason = getattr(session, "unlock_reason", None)
+                if getattr(session, "expires_at", None):
+                    exp = session.expires_at
+                    game.chat_expires_at = exp.isoformat() if hasattr(exp, "isoformat") else str(exp)
+                else:
+                    game.chat_expires_at = None
+            else:
+                game.chat_unlocked = False
+            if hasattr(session, "unlock_count") and session.unlock_count:
+                game.chat_unlock_count = max(getattr(game, "chat_unlock_count", 0), session.unlock_count)
+
+    def _restore_secret_chat_states_batch(self, games: List[Game], db: Session = None):
+        if not db or not games:
+            return
+
+        usernames = set()
+        for g in games:
+            p1 = getattr(g, "player1", None)
+            p2 = getattr(g, "player2", None)
+            if p1:
+                usernames.add(p1)
+            if p2:
+                usernames.add(p2)
+
+        users = db.query(User).filter(User.username.in_(usernames)).all()
+        user_by_name = {u.username: u for u in users}
+        user_ids = [u.id for u in users]
+
+        friendships = db.query(FriendRequest).filter(
+            FriendRequest.sender_id.in_(user_ids),
+            FriendRequest.receiver_id.in_(user_ids),
+            FriendRequest.status == "accepted",
+        ).all()
+
+        friend_pairs = set()
+        for f in friendships:
+            friend_pairs.add((f.sender_id, f.receiver_id))
+            friend_pairs.add((f.receiver_id, f.sender_id))
+
+        sessions = db.query(ChatUnlockSession).filter(
+            ChatUnlockSession.user1_id.in_(user_ids),
+            ChatUnlockSession.user2_id.in_(user_ids),
+        ).all()
+
+        session_map = {}
+        for s in sessions:
+            session_map[(s.user1_id, s.user2_id)] = s
+            session_map[(s.user2_id, s.user1_id)] = s
+
+        for g in games:
+            u1 = user_by_name.get(getattr(g, "player1", None))
+            u2 = user_by_name.get(getattr(g, "player2", None))
+            if not u1 or not u2:
+                continue
+
+            if (u1.id, u2.id) not in friend_pairs:
+                continue
+
+            session = session_map.get((u1.id, u2.id))
+            if session:
+                is_valid = session.check_and_update_expiry() if hasattr(session, "check_and_update_expiry") else getattr(session, "is_unlocked", False)
+                if is_valid:
+                    g.chat_unlocked = True
+                    g.chat_unlock_reason = getattr(session, "unlock_reason", None)
+                    if getattr(session, "expires_at", None):
+                        exp = session.expires_at
+                        g.chat_expires_at = exp.isoformat() if hasattr(exp, "isoformat") else str(exp)
+                    else:
+                        g.chat_expires_at = None
+                else:
+                    g.chat_unlocked = False
+                if hasattr(session, "unlock_count") and session.unlock_count:
+                    g.chat_unlock_count = max(getattr(g, "chat_unlock_count", 0), session.unlock_count)
 
     def save_game(
         self,
@@ -118,6 +245,12 @@ class GameService:
         db_game.result = game.result
         db_game.winner = game.winner
         db_game.updated_at = game.updated_at
+        db_game.chat_unlocked = getattr(game, "chat_unlocked", False)
+        db_game.chat_unlock_count = getattr(game, "chat_unlock_count", 0)
+        db_game.chat_expires_at = getattr(game, "chat_expires_at", None)
+        db_game.chat_unlock_reason = getattr(game, "chat_unlock_reason", None)
+        db_game.round1_unlock_ply = getattr(game, "round1_unlock_ply", None)
+        db_game.round2_window_start_ply = getattr(game, "round2_window_start_ply", None)
 
         db.commit()
 
@@ -231,17 +364,19 @@ class GameService:
             reason = None
 
             if getattr(game, "chat_unlock_count", 0) == 0:
-                if game.board.fullmove_number <= 5:
+                if game.board.fullmove_number <= 5 or cur_ply <= 10:
                     can_unlock = True
                     game.chat_unlock_count = 1
                     game.round1_unlock_ply = cur_ply
                     reason = f"Computer captured opponent piece ({captured_symbol.upper()}) on move {game.board.fullmove_number} (Chat 1 of 2)"
             elif getattr(game, "chat_unlock_count", 0) == 1 and not is_active:
-                plies_since_r1 = cur_ply - (getattr(game, "round1_unlock_ply", 0) or 0)
-                if plies_since_r1 <= 10:
+                if getattr(game, "round2_window_start_ply", None) is None:
+                    game.round2_window_start_ply = cur_ply
+                plies_in_window2 = cur_ply - game.round2_window_start_ply + 1
+                if plies_in_window2 <= 10:
                     can_unlock = True
                     game.chat_unlock_count = 2
-                    reason = f"Computer captured opponent piece ({captured_symbol.upper()}) within 5 moves (Chat 2 of 2)"
+                    reason = f"Computer captured opponent piece ({captured_symbol.upper()}) in second 5-move window (Chat 2 of 2)"
 
             if can_unlock:
                 game.chat_unlocked = True

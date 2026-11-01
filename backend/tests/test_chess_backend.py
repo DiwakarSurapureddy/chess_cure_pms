@@ -136,52 +136,6 @@ def test_computer_game():
     assert "moves" in data
 
 
-def test_random_challenge():
-    response = client.post(
-        "/api/challenges/random",
-        params={
-            "difficulty": "easy",
-        },
-    )
-
-    assert response.status_code == 200
-
-    data = response.json()
-
-    assert data["success"] is True
-    assert "challenge" in data
-
-
-def test_challenge_solve():
-    create_response = client.post(
-        "/api/challenges",
-        json={
-            "title": "Test Challenge",
-            "difficulty": "easy",
-            "fen": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
-            "solution": "e7e5",
-        },
-    )
-
-    assert create_response.status_code == 200
-
-    challenge = create_response.json()["challenge"]
-
-    challenge_id = challenge["challenge_id"]
-
-    response = client.post(
-        f"/api/challenges/{challenge_id}/solve",
-        json={
-            "move": "e7e5",
-        },
-    )
-
-    assert response.status_code == 200
-
-    data = response.json()
-
-    assert data["success"] is True
-
 
 def test_invalid_move():
     create_response = client.post(

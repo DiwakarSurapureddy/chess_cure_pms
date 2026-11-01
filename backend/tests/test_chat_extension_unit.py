@@ -28,7 +28,7 @@ def test_active_chat_extension_adds_five_minutes(monkeypatch):
     monkeypatch.setattr(
         chat_service,
         "get_or_create_unlock_session",
-        lambda db, user1_id, user2_id: session,
+        lambda db, user1_id, user2_id, game_id=None: session,
     )
 
     result = chat_service.extend_chat(
@@ -53,7 +53,7 @@ def test_second_extension_increments_count(monkeypatch):
     monkeypatch.setattr(
         chat_service,
         "get_or_create_unlock_session",
-        lambda db, user1_id, user2_id: session,
+        lambda db, user1_id, user2_id, game_id=None: session,
     )
 
     result = chat_service.extend_chat(
@@ -90,7 +90,7 @@ def test_expired_chat_extension_is_rejected(monkeypatch):
     monkeypatch.setattr(
         chat_service,
         "get_or_create_unlock_session",
-        lambda db, user1_id, user2_id: session,
+        lambda db, user1_id, user2_id, game_id=None: session,
     )
 
     with pytest.raises(HTTPException) as exc:

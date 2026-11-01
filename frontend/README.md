@@ -1,9 +1,9 @@
 # ♞ ChessCure Frontend
 
 > **Think Ahead. Move Smart.**  
-> Sharpen your mind with chess challenges and unlock meaningful conversations.
+> Sharpen your mind with chess and unlock meaningful conversations.
 
-ChessCure is a modern, luxury dark-themed chess web application designed with glowing warm amber/gold aesthetics, interactive game modes, challenges, and conversational unlocks.
+ChessCure is a modern, luxury dark-themed chess web application designed with glowing warm amber/gold aesthetics, interactive game modes, and conversational unlocks.
 
 ---
 
@@ -12,10 +12,9 @@ ChessCure is a modern, luxury dark-themed chess web application designed with gl
 - **Aesthetic Dark Theme**: Deep obsidian and navy palettes with gold/amber glowing accents.
 - **3D Hero Visual**: Rendered 3D black knight chess piece illuminated by warm rim lighting.
 - **Game Modes**:
-  - **Play vs Computer**: Challenge AI engine bots with selectable difficulty levels.
+  - **Play vs Computer**: Play against the AI engine with selectable difficulty levels.
   - **Play Online**: Matchmaking with players around the globe.
-  - **Puzzle Mode**: Tactical puzzles and brain training with daily challenges.
-- **Challenges & Social Unlocks**: Complete challenges to unlock special chat rooms and grandmaster analysis.
+  - **Play vs Friends**: Challenge online friends and track your career performance.
 - **Responsive Layout**: Designed for seamless viewing across mobile, tablet, and desktop displays.
 
 ---

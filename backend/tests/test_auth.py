@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
+from tests.conftest import seed_test_otp
 
 client = TestClient(app)
 
@@ -32,8 +33,8 @@ def test_register_and_login():
     rand_user = f"user_{uuid.uuid4().hex[:6]}"
     rand_email = f"{rand_user}@test.com"
 
-    # Register
-    reg_res = client.post(
+    # 1. Missing OTP should fail
+    missing_otp_res = client.post(
         "/api/auth/register",
         json={
             "username": rand_user,
@@ -42,16 +43,59 @@ def test_register_and_login():
             "skill": "intermediate"
         }
     )
+    assert missing_otp_res.status_code == 400
+    assert "(OTP) is required" in missing_otp_res.text
+
+    # 2. Invalid OTP should fail
+    invalid_otp_res = client.post(
+        "/api/auth/register",
+        json={
+            "username": rand_user,
+            "email": rand_email,
+            "password": "Password123!",
+            "skill": "intermediate",
+            "otp": "000000"
+        }
+    )
+    assert invalid_otp_res.status_code == 400
+
+    # 3. Expired OTP should fail
+    seed_test_otp(rand_email, code="888888", expired=True)
+    expired_otp_res = client.post(
+        "/api/auth/register",
+        json={
+            "username": rand_user,
+            "email": rand_email,
+            "password": "Password123!",
+            "skill": "intermediate",
+            "otp": "888888"
+        }
+    )
+    assert expired_otp_res.status_code == 400
+
+    # 4. Valid OTP should succeed
+    valid_code = seed_test_otp(rand_email, code="654321", expired=False)
+    reg_res = client.post(
+        "/api/auth/register",
+        json={
+            "username": rand_user,
+            "email": rand_email,
+            "password": "Password123!",
+            "skill": "intermediate",
+            "otp": valid_code
+        }
+    )
     assert reg_res.status_code == 201
     assert reg_res.json()["success"] is True
 
-    # Duplicate registration should fail
+    # 5. Duplicate registration should fail
     dup_res = client.post(
         "/api/auth/register",
         json={
             "username": rand_user,
             "email": rand_email,
-            "password": "Password123!"
+            "password": "Password123!",
+            "otp": valid_code
         }
     )
     assert dup_res.status_code == 400

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import api from '../services/api';
 
 export const AuthContext = createContext(null);
@@ -92,6 +92,11 @@ export function AuthProvider({ children }) {
   const [friendsList, setFriendsList] = useState([]);
   const [friendNotifications, setFriendNotifications] = useState([]);
 
+  // Polling optimization & deduplication refs
+  const pollIntervalRef = useRef(null);
+  const isPollingRef = useRef(false);
+  const lastFetchTimeRef = useRef(0);
+
   const sanitizeNotifications = (notifs) => {
     if (!Array.isArray(notifs)) return [];
     const seenIds = new Set();
@@ -115,23 +120,33 @@ export function AuthProvider({ children }) {
   const fetchNotificationsOnly = async (authToken = token) => {
     const curToken = authToken || localStorage.getItem(TOKEN_KEY);
     if (!curToken || curToken === 'guest_local_token') return;
+    // Guard against overlapping in-flight requests
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
     try {
       const notifRes = await api.getFriendNotifications(curToken).catch(() => ({ count: 0, notifications: [] }));
+      lastFetchTimeRef.current = Date.now();
       if (notifRes?.notifications) {
         const cleaned = sanitizeNotifications(notifRes.notifications);
         setFriendNotifications((prev) => (sameRecords(prev, cleaned) ? prev : cleaned));
       }
-    } catch (e) {}
+    } catch (e) {
+    } finally {
+      isPollingRef.current = false;
+    }
   };
 
   const fetchFriendsAndNotifications = async (authToken = token) => {
     const curToken = authToken || localStorage.getItem(TOKEN_KEY);
     if (!curToken || curToken === 'guest_local_token') return;
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
     try {
       const [notifRes, friendsRes] = await Promise.all([
         api.getFriendNotifications(curToken).catch(() => ({ count: 0, notifications: [] })),
         api.getFriendsList(curToken).catch(() => ({ count: 0, friends: [] }))
       ]);
+      lastFetchTimeRef.current = Date.now();
       if (notifRes?.notifications) {
         const cleaned = sanitizeNotifications(notifRes.notifications);
         setFriendNotifications((prev) => (sameRecords(prev, cleaned) ? prev : cleaned));
@@ -143,29 +158,56 @@ export function AuthProvider({ children }) {
       }
     } catch (e) {
       console.warn('Friends sync warning:', e.message);
+    } finally {
+      isPollingRef.current = false;
     }
   };
 
   useEffect(() => {
-    if (token && token !== 'guest_local_token') {
-      // Initial load: fetch both friends and notifications
-      fetchFriendsAndNotifications(token);
-
-      // Lightweight polling: only poll notifications every 4 seconds (reduces DB load by 75%)
-      const interval = setInterval(() => {
-        fetchNotificationsOnly(token);
-      }, 4000);
-
-      const handleFocus = () => {
-        fetchFriendsAndNotifications(token);
-      };
-      window.addEventListener('focus', handleFocus);
-
-      return () => {
-        clearInterval(interval);
-        window.removeEventListener('focus', handleFocus);
-      };
+    // If unauthenticated or guest, clear any existing interval and stop polling
+    if (!token || token === 'guest_local_token') {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      return;
     }
+
+    // Initial load: fetch both friends and notifications
+    fetchFriendsAndNotifications(token);
+
+    // Prevent duplicate intervals: clear any active timer before creating a new one
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+
+    // Optimized polling: 8 seconds (within 5–10s range, prevents excessive requests)
+    pollIntervalRef.current = setInterval(() => {
+      // Pause polling if user is in another tab or browser is minimized
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchNotificationsOnly(token);
+    }, 8000);
+
+    // Throttled re-sync on tab visibility or window focus (5-second minimum cooldown)
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      const elapsed = Date.now() - lastFetchTimeRef.current;
+      if (elapsed >= 5000) {
+        fetchFriendsAndNotifications(token);
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
   }, [token]);
 
   const sendFriendRequest = async (targetPlayerId) => {
@@ -391,11 +433,11 @@ export function AuthProvider({ children }) {
   };
 
   // Real Backend Registration: surfaces real errors directly
-  const register = async ({ username, email, mobileNumber, password, skill }) => {
+  const register = async ({ username, email, mobileNumber, password, skill, otp }) => {
     setAuthError(null);
     setIsLoading(true);
     try {
-      const res = await api.register({ username, email, mobileNumber, password, skill });
+      const res = await api.register({ username, email, mobileNumber, password, skill, otp });
       if (res?.token && res?.user) {
         setToken(res.token);
         setUser(res.user);
@@ -424,23 +466,6 @@ export function AuthProvider({ children }) {
       password,
       skill: skill || 'intermediate',
     });
-  };
-
-  // Social Login: Google
-  const loginWithGoogle = async () => {
-    try {
-      const res = await api.loginWithGoogle();
-      if (res?.user && res?.token) {
-        setUser(res.user);
-        setToken(res.token);
-        localStorage.setItem(TOKEN_KEY, res.token);
-        setIsAuthenticated(true);
-      }
-      return { success: true, user: res.user };
-    } catch (e) {
-      setAuthError(e.message || 'Google authentication failed.');
-      throw e;
-    }
   };
 
   // Social Login: Facebook (Uses App ID 1608757584075667 with popup flow)
@@ -718,7 +743,6 @@ export function AuthProvider({ children }) {
     login,
     register,
     signup,
-    loginWithGoogle,
     loginWithFacebook,
     continueAsGuest,
     logout,

@@ -1,4 +1,4 @@
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timezone
 from typing import Optional
 from pydantic import BaseModel
 from fastapi import (
@@ -8,6 +8,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db, SessionLocal
@@ -17,6 +18,72 @@ from app.models.user import User
 from app.services.game_service import game_service
 from app.services.chat_service import chat_service
 from app.websockets.connection_manager import connection_manager
+
+
+def sync_secret_chat(game, db: Session):
+    if not db or not game or not getattr(game, "chat_unlocked", False):
+        return
+
+    p1 = getattr(game, "player1", None)
+    p2 = getattr(game, "player2", None)
+    if not p1 or not p2:
+        return
+
+    from app.routers.chat import resolve_friend_user
+    u1, u2 = None, None
+    try:
+        u1 = resolve_friend_user(db, p1)
+    except Exception:
+        pass
+    try:
+        u2 = resolve_friend_user(db, p2)
+    except Exception:
+        pass
+
+    if not u1 or not u2:
+        return
+
+    game_id = getattr(game, "game_id", None)
+    if game_id:
+        try:
+            session = chat_service.get_or_create_unlock_session(db, u1.id, u2.id, game_id=game_id)
+        except TypeError:
+            session = chat_service.get_or_create_unlock_session(db, u1.id, u2.id)
+    else:
+        session = chat_service.get_or_create_unlock_session(db, u1.id, u2.id)
+
+    is_active = False
+    if hasattr(session, "check_and_update_expiry"):
+        is_active = session.check_and_update_expiry()
+    elif hasattr(session, "is_unlocked"):
+        is_active = bool(session.is_unlocked)
+
+    if not is_active:
+        if getattr(session, "unlocked_at", None) is not None:
+            return
+        reason = getattr(game, "chat_unlock_reason", None) or "Both players completed 5 legal moves each"
+        unlock_kwargs = {
+            "db": db,
+            "user1_id": u1.id,
+            "user2_id": u2.id,
+            "reason": reason,
+            "minutes": 5,
+        }
+        if game_id:
+            unlock_kwargs["game_id"] = game_id
+        try:
+            session = chat_service.unlock_chat(**unlock_kwargs)
+        except TypeError:
+            unlock_kwargs.pop("game_id", None)
+            session = chat_service.unlock_chat(**unlock_kwargs)
+
+        if hasattr(session, "expires_at") and session.expires_at:
+            exp = session.expires_at
+            if hasattr(exp, "tzinfo") and exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            game.chat_expires_at = exp.isoformat() if hasattr(exp, "isoformat") else str(exp)
+        if hasattr(session, "unlock_reason") and session.unlock_reason:
+            game.chat_unlock_reason = session.unlock_reason
 
 
 router = APIRouter(
@@ -34,6 +101,7 @@ def create_game(
         player1=request.player1,
         player2=request.player2,
         db=db,
+        game_id=getattr(request, "game_id", None),
     )
 
     return {
@@ -116,6 +184,12 @@ async def make_move(
             status_code=400,
             detail=message,
         )
+
+    if game.chat_unlocked:
+        try:
+            sync_secret_chat(game, db)
+        except Exception:
+            pass
 
     # Broadcast to live connected clients so opponents see move instantly
     await connection_manager.send_to_game(
@@ -336,6 +410,11 @@ async def websocket_endpoint(
     websocket: WebSocket,
     game_id: str,
 ):
+    try:
+        await websocket.accept()
+    except RuntimeError:
+        pass
+
     db = SessionLocal()
 
     try:
@@ -348,19 +427,12 @@ async def websocket_endpoint(
             # Check if there is an active or pending challenge for this game_id
             challenge = db.query(MatchChallenge).filter(MatchChallenge.game_id == game_id).first()
             if challenge:
-                sender_name = challenge.sender.username if challenge.sender else "player1"
-                receiver_name = challenge.receiver.username if challenge.receiver else "player2"
-                game = game_service.create_game(player1=sender_name, player2=receiver_name, db=db)
-                game.game_id = game_id
-                game_service.games[game_id] = game
-            elif game_id.startswith("quick_") or "online" in game_id:
-                game = game_service.create_game(player1="Player 1", player2="Player 2", db=db)
-                game.game_id = game_id
-                game_service.games[game_id] = game
-
-        if game is None:
-            await websocket.close(code=1008)
-            return
+                sender_name = challenge.sender.username if challenge.sender else "Player 1"
+                receiver_name = challenge.receiver.username if challenge.receiver else "Player 2"
+                game = game_service.create_game(player1=sender_name, player2=receiver_name, db=db, game_id=game_id)
+            else:
+                # Auto-initialize game instance so any online match (UUID, quick, etc.) connects reliably
+                game = game_service.create_game(player1="Player 1", player2="Player 2", db=db, game_id=game_id)
 
         await connection_manager.connect(
             game_id,
@@ -415,15 +487,7 @@ async def websocket_endpoint(
 
                 if updated_game.chat_unlocked:
                     try:
-                        u1 = db.query(User).filter(User.username == updated_game.player1).first()
-                        u2 = db.query(User).filter(User.username == updated_game.player2).first()
-                        if u1 and u2:
-                            chat_service.unlock_chat(
-                                db=db,
-                                user1_id=u1.id,
-                                user2_id=u2.id,
-                                reason=updated_game.chat_unlock_reason or "Captured piece within first 5 moves"
-                            )
+                        sync_secret_chat(updated_game, db)
                     except Exception:
                         pass
 
@@ -477,6 +541,23 @@ async def websocket_endpoint(
                     })
                     continue
 
+                # Persist message to database chat_messages table
+                try:
+                    p1_user = db.query(User).filter(or_(User.username == current_game.player1, User.id == current_game.player1)).first()
+                    p2_user = db.query(User).filter(or_(User.username == current_game.player2, User.id == current_game.player2)).first()
+                    if p1_user and p2_user:
+                        sender_user = p1_user if (sender == p1_user.username or sender == p1_user.id) else p2_user
+                        receiver_user = p2_user if sender_user == p1_user else p1_user
+                        chat_service.send_message(
+                            db=db,
+                            sender_id=sender_user.id,
+                            receiver_id=receiver_user.id,
+                            text=text,
+                            game_id=game_id,
+                        )
+                except Exception:
+                    pass
+
                 now_ts = datetime.now(UTC).strftime("%I:%M %p")
                 await connection_manager.send_to_game(
                     game_id,
@@ -489,6 +570,22 @@ async def websocket_endpoint(
                     }
                 )
 
+            elif action == "resume_board":
+                current_game = game_service.get_game(game_id, db)
+                if current_game:
+                    if hasattr(current_game, "notify_round1_resumed"):
+                        current_game.notify_round1_resumed()
+                    if db:
+                        game_service.save_game(current_game, db)
+                    await connection_manager.send_to_game(
+                        game_id,
+                        {
+                            "type": "state",
+                            "success": True,
+                            "game": current_game.get_state(),
+                        },
+                    )
+
             elif action in ["extend_chat", "pay_demo"]:
                 current_game = game_service.get_game(game_id, db)
                 if current_game:
@@ -498,7 +595,7 @@ async def websocket_endpoint(
                         u1 = db.query(User).filter(User.username == current_game.player1).first()
                         u2 = db.query(User).filter(User.username == current_game.player2).first()
                         if u1 and u2:
-                            chat_service.extend_chat(db, u1.id, u2.id, amount=10, payment_method="demo_upi")
+                            chat_service.extend_chat(db, u1.id, u2.id, amount=10, payment_method="demo_upi", game_id=game_id)
                     except Exception:
                         pass
 

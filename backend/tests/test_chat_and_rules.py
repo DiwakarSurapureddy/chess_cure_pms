@@ -25,6 +25,8 @@ def get_or_create_test_user(
             login_res.json()["user"],
         )
 
+    from tests.conftest import seed_test_otp
+    otp = seed_test_otp(email, "654321")
     reg_res = client.post(
         "/api/auth/register",
         json={
@@ -32,6 +34,7 @@ def get_or_create_test_user(
             "email": email,
             "password": password,
             "skill": "intermediate",
+            "otp": otp,
         },
     )
     assert reg_res.status_code in (200, 201), reg_res.text
@@ -103,7 +106,7 @@ def test_chess_checkmate_and_game_over_popup():
 
 
 def test_secret_chat_unlocks_after_both_players_complete_five_moves():
-    """A capture alone must not unlock chat; both players need 5 legal moves."""
+    """Chat unlocks when a qualifying capture occurs on move 4 or 5."""
 
     game = Game(
         game_id="test_secret_chat_1",
@@ -111,44 +114,38 @@ def test_secret_chat_unlocks_after_both_players_complete_five_moves():
         player2="Player2",
     )
 
-    # White captures the black pawn on move 2.
-    moves_before_unlock = [
+    # Moves 1 to 3: Early captures on move 2 must NOT unlock chat
+    early_moves = [
         ("e2", "e4"),  # White 1
         ("d7", "d5"),  # Black 1
-        ("e4", "d5"),  # White 2: captures pawn
-        ("d8", "d5"),  # Black 2: queen captures white pawn
+        ("e4", "d5"),  # White 2: captures pawn (must NOT unlock)
+        ("d8", "d5"),  # Black 2: queen captures white pawn (must NOT unlock)
         ("b1", "c3"),  # White 3
         ("d5", "d6"),  # Black 3
-        ("g1", "f3"),  # White 4
-        ("b8", "c6"),  # Black 4
     ]
 
-    for from_square, to_square in moves_before_unlock:
+    for from_square, to_square in early_moves:
         success, msg = game.make_move(from_square, to_square)
-        assert success is True, (
-            f"Move {from_square}-{to_square} failed: {msg}"
-        )
+        assert success is True, f"Move {from_square}-{to_square} failed: {msg}"
+        assert game.chat_unlocked is False
 
-    state = game.get_state()
-    assert state["player1_move_count"] == 4
-    assert state["player2_move_count"] == 4
-    assert state["chat_unlocked"] is False
+    # Move 4: White plays Nf3 (no capture), Black plays Bg4 (no capture)
+    assert game.make_move("g1", "f3")[0] is True
+    assert game.make_move("c8", "g4")[0] is True
+    assert game.chat_unlocked is False
 
-    # White's fifth legal move.
-    success, msg = game.make_move("f1", "b5")
-    assert success is True, msg
-    assert game.get_state()["chat_unlocked"] is False
+    # Move 5: White plays d2-d4, Black captures on f3! (g4xf3)
+    assert game.make_move("d2", "d4")[0] is True
+    assert game.chat_unlocked is False
 
-    # Black's fifth legal move.
-    success, msg = game.make_move("c8", "f5")
+    success, msg = game.make_move("g4", "f3")
     assert success is True, msg
 
+    # Qualifying capture on move 5 unlocks chat
     state = game.get_state()
-    assert state["player1_move_count"] == 5
-    assert state["player2_move_count"] == 5
     assert state["chat_unlocked"] is True
     assert state["chat_time_remaining"] > 290
-    assert state["captured_pieces"]["white"] == ["p"]
+    assert "move 5" in state["chat_unlock_reason"]
 
 
 def test_friend_request_reject_flow():

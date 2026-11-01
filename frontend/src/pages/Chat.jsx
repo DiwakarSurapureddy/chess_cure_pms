@@ -49,6 +49,15 @@ const QUICK_PROMPTS = [
 
 const EMPTY_FRIENDS = [];
 
+const parseUtcDate = (d) => {
+  if (!d) return null;
+  if (d instanceof Date) return d;
+  const s = String(d).trim();
+  if (!s) return null;
+  const hasTz = s.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(s);
+  return new Date(hasTz ? s : s + 'Z');
+};
+
 const formatMessageTime = (message) => {
   const rawCreatedAt = message?.createdAt;
   if (rawCreatedAt) {
@@ -98,7 +107,7 @@ export default function Chat({
     setActiveOnlineMatch
   } = useAuth();
 
-  const { isChatUnlocked: contextUnlocked, timeRemaining: contextRemaining, formattedTime: contextFormattedTime, unlockSecretChat } = useSecretChat ? (useSecretChat() || {}) : {};
+  const { isChatUnlocked: contextUnlocked, timeRemaining: contextRemaining, formattedTime: contextFormattedTime, unlockSecretChat, expiresAt: contextExpiresAt, unlockReason: contextUnlockReason } = useSecretChat ? (useSecretChat() || {}) : {};
 
   // Selected Friend in Chat
   const [selectedFriendId, setSelectedFriendId] = useState(() => {
@@ -106,6 +115,10 @@ export default function Chat({
     try {
       const pending = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null');
       if (pending?.id || pending?.playerId) return pending.id || pending.playerId;
+    } catch {}
+    try {
+      const saved = localStorage.getItem('cc_last_selected_friend');
+      if (saved) return saved;
     } catch {}
     return null;
   });
@@ -125,11 +138,52 @@ export default function Chat({
 
   // Active Chat Status & Messages State
   const [chatMessages, setChatMessages] = useState([]);
-  const [chatStatus, setChatStatus] = useState({
-    isUnlocked: false,
-    timeRemainingSeconds: 0,
-    expiresAt: null,
-    unlockReason: '',
+  const [chatStatus, setChatStatus] = useState(() => {
+    if (inPlaceFriend?.expiresAt) {
+      const expDate = parseUtcDate(inPlaceFriend.expiresAt);
+      const rem = expDate ? Math.max(0, Math.floor((expDate.getTime() - Date.now()) / 1000)) : 0;
+      if (rem > 0) {
+        return {
+          isUnlocked: true,
+          timeRemainingSeconds: rem,
+          expiresAt: inPlaceFriend.expiresAt,
+          unlockReason: inPlaceFriend.unlockReason || 'Piece captured within 5 moves',
+        };
+      }
+    }
+    if (contextExpiresAt) {
+      const expDate = parseUtcDate(contextExpiresAt);
+      const rem = expDate ? Math.max(0, Math.floor((expDate.getTime() - Date.now()) / 1000)) : 0;
+      if (rem > 0) {
+        return {
+          isUnlocked: true,
+          timeRemainingSeconds: rem,
+          expiresAt: contextExpiresAt,
+          unlockReason: contextUnlockReason || 'Piece captured within 5 moves',
+        };
+      }
+    }
+    try {
+      const pending = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null');
+      if (pending?.expiresAt) {
+        const expDate = parseUtcDate(pending.expiresAt);
+        const rem = expDate ? Math.max(0, Math.floor((expDate.getTime() - Date.now()) / 1000)) : 0;
+        if (rem > 0) {
+          return {
+            isUnlocked: true,
+            timeRemainingSeconds: rem,
+            expiresAt: pending.expiresAt,
+            unlockReason: pending.unlockReason || 'Piece captured within 5 moves',
+          };
+        }
+      }
+    } catch {}
+    return {
+      isUnlocked: false,
+      timeRemainingSeconds: 0,
+      expiresAt: null,
+      unlockReason: '',
+    };
   });
   const [friendPresence, setFriendPresence] = useState({
     online: false,
@@ -336,21 +390,18 @@ export default function Chat({
 
     let pending = null;
     try { pending = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null'); } catch {}
-    const isPendingActive = pending && pending.expiresAt && new Date(pending.expiresAt).getTime() > Date.now();
+    const isPendingActive = pending && pending.expiresAt && parseUtcDate(pending.expiresAt).getTime() > Date.now();
     const pendingId = pending?.id || pending?.playerId;
 
     // Prioritize active 5-minute online unlocked opponent!
     if (isPendingActive && pendingId) {
       setSelectedFriendId(pendingId);
+      try { localStorage.setItem('cc_last_selected_friend', pendingId); } catch {}
       setMobileView('chat');
       return;
     }
 
     if (!friendsList.length) {
-      if (!selectedFriendId) {
-        setChatMessages([]);
-        setChatStatus({ isUnlocked: false, timeRemainingSeconds: 0, expiresAt: null, unlockReason: '' });
-      }
       return;
     }
 
@@ -363,14 +414,18 @@ export default function Chat({
     );
 
     if (preferredFriend) {
-      setSelectedFriendId(preferredFriend.id || preferredFriend.playerId);
+      const fid = preferredFriend.id || preferredFriend.playerId;
+      setSelectedFriendId(fid);
+      try { localStorage.setItem('cc_last_selected_friend', fid); } catch {}
       setMobileView('chat');
-    } else if (friendsList[0]) {
-      setSelectedFriendId(friendsList[0].id || friendsList[0].playerId);
+    } else if (friendsList[0] && !selectedFriendId) {
+      const fid = friendsList[0].id || friendsList[0].playerId;
+      setSelectedFriendId(fid);
+      try { localStorage.setItem('cc_last_selected_friend', fid); } catch {}
     }
   }, [friendsList, selectedFriendId, inPlaceFriend]);
 
-  // Resolve active friend
+  // Resolve active friend with canonical matching
   const pendingOpponent = (() => {
     try {
       const p = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null');
@@ -379,17 +434,34 @@ export default function Chat({
     return null;
   })();
 
-  const activeFriend = inPlaceFriend || pendingOpponent || friendsList.find(
-    (f) => f.id === selectedFriendId || f.playerId === selectedFriendId
-  ) || (selectedFriendId ? {
+  const canonicalOpponent = React.useMemo(() => {
+    const target = inPlaceFriend || pendingOpponent;
+    if (!target) return null;
+    const found = friendsList.find(
+      (f) => (target.id && (f.id === target.id || f.playerId === target.id)) ||
+             (target.playerId && (f.playerId === target.playerId || f.id === target.playerId)) ||
+             (target.username && (f.username === target.username || f.name === target.username)) ||
+             (target.name && (f.name === target.name || f.username === target.name))
+    );
+    return found ? { ...target, ...found, id: found.id, playerId: found.playerId } : target;
+  }, [inPlaceFriend, pendingOpponent, friendsList]);
+
+  const selectedFriendFromList = React.useMemo(() => {
+    if (!selectedFriendId) return null;
+    return friendsList.find(
+      (f) => f.id === selectedFriendId || f.playerId === selectedFriendId
+    ) || null;
+  }, [selectedFriendId, friendsList]);
+
+  const activeFriend = selectedFriendFromList || canonicalOpponent || (selectedFriendId ? {
     id: selectedFriendId,
     playerId: selectedFriendId,
     name: 'Friend',
     username: 'Friend',
-  } : null);
+  } : friendsList[0] || null);
 
   const activeFriendParam = activeFriend?.id || activeFriend?.playerId;
-  const canMessageActiveFriend = Boolean(chatStatus.isFriend || chatStatus.isUnlocked);
+  const canMessageActiveFriend = Boolean(chatStatus.isFriend || chatStatus.isUnlocked || contextUnlocked);
 
   useEffect(() => {
     let isMounted = true;
@@ -439,21 +511,28 @@ export default function Chat({
       if (statusRes && statusRes.success) {
         const nextUnlocked = Boolean(statusRes.isUnlocked);
         const expiresAt = statusRes.expiresAt;
-        const diffSeconds = expiresAt ? Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)) : (statusRes.timeRemainingSeconds || 0);
+        const expDate = parseUtcDate(expiresAt);
+        const diffSeconds = expDate ? Math.max(0, Math.floor((expDate.getTime() - Date.now()) / 1000)) : (statusRes.timeRemainingSeconds || 0);
 
         setChatStatus((prev) => {
-          // If we currently have an active local 5-minute unlock that hasn't expired yet,
-          // do NOT let an un-synchronized server false override it!
-          const localHasActiveTime = prev.isUnlocked && prev.expiresAt && new Date(prev.expiresAt).getTime() > Date.now();
-          if (localHasActiveTime && !nextUnlocked) {
-            return prev;
+          const globalExpDate = parseUtcDate(contextExpiresAt);
+          const globalHasActiveTime = contextUnlocked && globalExpDate && globalExpDate.getTime() > Date.now();
+          const prevExpDate = parseUtcDate(prev.expiresAt);
+          const localHasActiveTime = prev.isUnlocked && prevExpDate && prevExpDate.getTime() > Date.now();
+          if ((globalHasActiveTime || localHasActiveTime) && !nextUnlocked) {
+            return {
+              ...prev,
+              isFriend: Boolean(statusRes.isFriend),
+              isUnlocked: true,
+              expiresAt: globalHasActiveTime ? contextExpiresAt : prev.expiresAt,
+            };
           }
           const isSameSession = prev.isUnlocked && nextUnlocked && prev.expiresAt === expiresAt;
           return {
             isFriend: Boolean(statusRes.isFriend),
-            isUnlocked: nextUnlocked || localHasActiveTime,
+            isUnlocked: nextUnlocked || localHasActiveTime || globalHasActiveTime,
             timeRemainingSeconds: isSameSession ? prev.timeRemainingSeconds : diffSeconds,
-            expiresAt: expiresAt || prev.expiresAt,
+            expiresAt: expiresAt || (globalHasActiveTime ? contextExpiresAt : prev.expiresAt),
             unlockReason: statusRes.unlockReason || prev.unlockReason,
           };
         });
@@ -483,27 +562,40 @@ export default function Chat({
     setInputVal('');
     setSendError('');
 
-    // Check localStorage for immediate unlock session
-    try {
-      const pending = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null');
-      if (pending && (pending.id === activeFriendParam || pending.playerId === activeFriendParam) && pending.expiresAt) {
-        const remaining = Math.max(0, Math.floor((new Date(pending.expiresAt).getTime() - Date.now()) / 1000));
-        if (remaining > 0) {
-          setChatStatus({
-            isUnlocked: true,
-            timeRemainingSeconds: remaining,
-            expiresAt: pending.expiresAt,
-            unlockReason: pending.unlockReason || 'Opponent piece captured within 5 moves',
-          });
+    // If global context is active from game unlock, preserve it across friend changes!
+    const globalExpDate = parseUtcDate(contextExpiresAt);
+    if (contextUnlocked && globalExpDate && globalExpDate.getTime() > Date.now()) {
+      const remaining = Math.max(0, Math.floor((globalExpDate.getTime() - Date.now()) / 1000));
+      setChatStatus({
+        isUnlocked: true,
+        timeRemainingSeconds: remaining,
+        expiresAt: contextExpiresAt,
+        unlockReason: contextUnlockReason || 'Opponent piece captured within 5 moves',
+      });
+    } else {
+      // Check localStorage for immediate unlock session
+      try {
+        const pending = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null');
+        if (pending && (pending.id === activeFriendParam || pending.playerId === activeFriendParam) && pending.expiresAt) {
+          const pendingExpDate = parseUtcDate(pending.expiresAt);
+          const remaining = pendingExpDate ? Math.max(0, Math.floor((pendingExpDate.getTime() - Date.now()) / 1000)) : 0;
+          if (remaining > 0) {
+            setChatStatus({
+              isUnlocked: true,
+              timeRemainingSeconds: remaining,
+              expiresAt: pending.expiresAt,
+              unlockReason: pending.unlockReason || 'Opponent piece captured within 5 moves',
+            });
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
     if (!activeFriendParam) return;
     syncActiveChat();
 
     if (chatPollRef.current) clearInterval(chatPollRef.current);
-    chatPollRef.current = setInterval(syncActiveChat, 1000);
+    chatPollRef.current = setInterval(syncActiveChat, 10000);
 
     return () => {
       if (chatPollRef.current) clearInterval(chatPollRef.current);
@@ -518,17 +610,28 @@ export default function Chat({
     let stopped = false;
     let reconnectTimer = null;
     let heartbeatTimer = null;
+    let reconnectAttempts = 0;
     let socket = null;
 
     const connect = () => {
       if (stopped) return;
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const url = `${protocol}//${window.location.host}/api/chat/ws/${encodeURIComponent(activeFriendParam)}`;
+      const url = `${protocol}//${window.location.host}/api/chat/ws/${encodeURIComponent(activeFriendParam)}?token=${encodeURIComponent(token)}`;
       socket = new WebSocket(url);
       chatSocketRef.current = socket;
 
       socket.onopen = () => {
-        socket.send(JSON.stringify({ token }));
+        if (stopped) {
+          try {
+            socket.close(1000, 'Unmounted');
+          } catch (e) {}
+          return;
+        }
+        reconnectAttempts = 0;
+        try {
+          socket.send(JSON.stringify({ token }));
+        } catch (e) {}
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
         heartbeatTimer = setInterval(() => {
           if (socket?.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ type: 'ping' }));
@@ -579,6 +682,13 @@ export default function Chat({
           const message = payload?.message;
           if (payload?.type !== 'message' || !message) return;
           if (![message.senderId, message.receiverId].includes(user.id)) return;
+          const activeId = activeFriend?.id;
+          const activePlayerId = activeFriend?.playerId;
+          const isForActiveFriend = (
+            [message.senderId, message.receiverId].includes(activeId) ||
+            [message.senderId, message.receiverId].includes(activePlayerId)
+          );
+          if (!isForActiveFriend) return;
 
           setChatMessages((previous) => previous.some((item) => item.id === message.id)
             ? previous
@@ -588,11 +698,18 @@ export default function Chat({
         }
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (heartbeatTimer) clearInterval(heartbeatTimer);
-        if (!stopped) reconnectTimer = setTimeout(connect, 1500);
+        if (stopped || event.code === 1000 || event.code === 1001) return;
+        reconnectAttempts++;
+        if (reconnectAttempts <= 5) {
+          reconnectTimer = setTimeout(connect, Math.min(1500 * reconnectAttempts, 5000));
+        }
       };
-      socket.onerror = () => socket?.close();
+      socket.onerror = (err) => {
+        if (stopped) return;
+        console.warn('Chat WS error:', err);
+      };
     };
 
     connect();
@@ -601,12 +718,28 @@ export default function Chat({
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (activeCallIdRef.current && socket?.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'call-end', callId: activeCallIdRef.current }));
+        try {
+          socket.send(JSON.stringify({ type: 'call-end', callId: activeCallIdRef.current }));
+        } catch (e) {}
       }
-      if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+      if (socket) {
+        socket.onclose = null;
+        socket.onerror = null;
+        if (socket.readyState === WebSocket.OPEN) {
+          try {
+            socket.close(1000, 'Unmounting');
+          } catch (e) {}
+        } else if (socket.readyState === WebSocket.CONNECTING) {
+          socket.onopen = () => {
+            try {
+              socket.close(1000, 'Unmounting');
+            } catch (e) {}
+          };
+        }
+      }
       if (chatSocketRef.current === socket) chatSocketRef.current = null;
     };
-  }, [activeFriendParam, activeFriend?.id, token, user?.id]);
+  }, [activeFriendParam, token, user?.id]);
 
   useEffect(() => {
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = remoteStream;
@@ -648,7 +781,8 @@ export default function Chat({
 
       const tick = () => {
         if (!chatStatus.expiresAt) return;
-        const expTime = new Date(chatStatus.expiresAt).getTime();
+        const expDate = parseUtcDate(chatStatus.expiresAt);
+        const expTime = expDate ? expDate.getTime() : null;
         if (!expTime || isNaN(expTime)) return;
 
         const now = Date.now();
@@ -1461,7 +1595,10 @@ export default function Chat({
                   <div
                     key={friendId}
                     onClick={() => {
-                      setSelectedFriendId(friendId);
+                      if (selectedFriendId !== friendId) {
+                        setChatMessages([]);
+                        setSelectedFriendId(friendId);
+                      }
                       setMobileView('chat');
                     }}
                     className={`p-3 rounded-2xl flex items-center justify-between gap-3 cursor-pointer transition-all ${
