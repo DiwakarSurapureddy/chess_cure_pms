@@ -14,15 +14,37 @@ import { Bot, User, Users, Swords, Gamepad2, Sparkles, MessageSquare, X, Crown, 
 
 
 
-export default function Dashboard({ initialMode = 'computer', onNavigate, onGameOver }) {
+export default function Dashboard({ initialMode = 'computer', onNavigate, onGameOver, onModeChange }) {
 
   const { user, token, recordGameResult, activeOnlineMatch, setActiveOnlineMatch, cancelActiveOnlineMatch } = useAuth();
 
   const [mode, setMode] = useState(activeOnlineMatch ? 'online' : initialMode);
 
-  const [aiLevel, setAiLevel] = useState('intermediate');
+  const changeMode = (newMode) => {
+    setMode(newMode);
+    if (onModeChange) onModeChange(newMode);
+  };
 
-  const [selectedSide, setSelectedSide] = useState(activeOnlineMatch?.playerColor || 'w'); // 'w' | 'b'
+  const getSavedComputerSide = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('cc_saved_computer_game') || sessionStorage.getItem('cc_saved_computer_game') || 'null');
+      if (saved?.playerColor && !saved.isGameOver) return saved.playerColor;
+    } catch {}
+    return 'w';
+  };
+
+  const [aiLevel, setAiLevel] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('cc_saved_computer_game') || sessionStorage.getItem('cc_saved_computer_game') || 'null');
+      if (saved?.aiDifficulty && !saved.isGameOver) return saved.aiDifficulty;
+    } catch {}
+    return 'intermediate';
+  });
+
+  const [selectedSide, setSelectedSide] = useState(() => {
+    if (activeOnlineMatch?.playerColor) return activeOnlineMatch.playerColor;
+    return getSavedComputerSide();
+  });
 
   const [friendName, setFriendName] = useState(activeOnlineMatch?.opponentName || 'Friend');
 
@@ -32,8 +54,12 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
   const [inPlaceChatFriend, setInPlaceChatFriend] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null');
+      const userKey = user?.id ? `cc_selected_chat_opponent_${user.id}` : 'cc_selected_chat_opponent';
+      const saved = JSON.parse(localStorage.getItem(userKey) || localStorage.getItem('cc_selected_chat_opponent') || 'null');
       if (saved?.expiresAt) {
+        if (user && (saved.id === user.id || saved.playerId === user.playerId || saved.name === user.username)) {
+          return null;
+        }
         const expStr = saved.expiresAt;
         const hasTz = expStr.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(expStr);
         const expTime = new Date(hasTz ? expStr : expStr + 'Z').getTime();
@@ -47,8 +73,12 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
   const [activeBoardView, setActiveBoardView] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null');
+      const userKey = user?.id ? `cc_selected_chat_opponent_${user.id}` : 'cc_selected_chat_opponent';
+      const saved = JSON.parse(localStorage.getItem(userKey) || localStorage.getItem('cc_selected_chat_opponent') || 'null');
       if (saved?.expiresAt) {
+        if (user && (saved.id === user.id || saved.playerId === user.playerId || saved.name === user.username)) {
+          return 'board';
+        }
         const expStr = saved.expiresAt;
         const hasTz = expStr.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(expStr);
         const expTime = new Date(hasTz ? expStr : expStr + 'Z').getTime();
@@ -64,6 +94,19 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
   const chessBoardRef = useRef(null);
   const chatOpenedAtRef = useRef(0);
+
+  const onlineOpponentFriend = (mode === 'online' && activeOnlineMatch) ? {
+    id: activeOnlineMatch.opponentId || activeOnlineMatch.opponent_id,
+    playerId: activeOnlineMatch.opponentPlayerId || activeOnlineMatch.opponent_player_id,
+    name: activeOnlineMatch.opponentName,
+    username: activeOnlineMatch.opponentName,
+    gameId: activeOnlineMatch.gameId,
+    mode: 'online',
+  } : null;
+
+  const currentChatFriend = (mode === 'online' && activeOnlineMatch)
+    ? (onlineOpponentFriend || inPlaceChatFriend)
+    : (mode !== 'computer' ? (inPlaceChatFriend || onlineOpponentFriend) : null);
 
   // Chat owns the visible countdown and connection; both stop when its view closes.
   const { isChatUnlocked, formattedTime } = useSecretChat ? useSecretChat() : { isChatUnlocked: false, formattedTime: '00:00' };
@@ -98,21 +141,14 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
 
   useEffect(() => {
-
     if (activeOnlineMatch) {
-
       setMode('online');
-
       setSelectedSide(activeOnlineMatch.playerColor || 'w');
-
       setFriendName(activeOnlineMatch.opponentName || 'Online Opponent');
-
-    } else if (initialMode) {
-
+      if (onModeChange) onModeChange('online');
+    } else if (initialMode && (!activeOnlineMatch)) {
       setMode(initialMode);
-
     }
-
   }, [initialMode, activeOnlineMatch]);
 
 
@@ -139,9 +175,9 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
     }
 
-    setMode(targetMode);
+    changeMode(targetMode);
 
-    if (targetMode === 'computer') setSelectedSide('w');
+    if (targetMode === 'computer') setSelectedSide(getSavedComputerSide());
 
   };
 
@@ -185,9 +221,9 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
     try { localStorage.removeItem('cc_selected_chat_opponent'); } catch {}
 
-    setMode('computer');
+    changeMode('computer');
 
-    setSelectedSide('w');
+    setSelectedSide(getSavedComputerSide());
 
   };
 
@@ -217,9 +253,9 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
     try { localStorage.removeItem('cc_selected_chat_opponent'); } catch {}
 
-    setMode(target);
+    changeMode(target);
 
-    if (target === 'computer') setSelectedSide('w');
+    if (target === 'computer') setSelectedSide(getSavedComputerSide());
 
   };
 
@@ -278,11 +314,11 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
 
   const handleReturnToChessboard = () => {
-
     hasUserClosedInPlaceRef.current = true;
-
+    if (activeOnlineMatch || mode === 'online') {
+      changeMode('online');
+    }
     setActiveBoardView('board');
-
   };
 
 
@@ -306,7 +342,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
       ? 'Computer'
 
-      : (activeOnlineMatch?.opponentName || friendName || 'Friend (Player 2)');
+      : (activeOnlineMatch?.opponentName || friendName || 'Friend');
 
 
 
@@ -315,25 +351,23 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
 
     recordGameResult({
-
       id: 'match_' + Date.now(),
-
       opponent: oppName,
-
       mode: mode === 'computer' ? 'vs Computer' : mode === 'online' ? 'Online 1v1 Match' : 'Play vs Friends',
-
       result: resultData.result,
-
       method: resultData.method,
-
       moves: resultData.moves,
-
       ratingChange: ratingDelta,
-
       date: 'Just now',
-
     });
 
+    try {
+      localStorage.removeItem('cc_active_online_match');
+    } catch {}
+
+    if (onGameOver) {
+      onGameOver(resultData);
+    }
   };
 
 
@@ -652,9 +686,9 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
 
 
-        {/* In-Place Chat Toggle Button (when chat has been unlocked for a friend) */}
+        {/* In-Place Chat Toggle Button (when chat has been unlocked for a friend or during active match) */}
 
-        {inPlaceChatFriend && (
+        {currentChatFriend && (
 
           <button
 
@@ -694,7 +728,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
                 ? 'View Chessboard'
 
-                : `Chat with ${inPlaceChatFriend.name || inPlaceChatFriend.username || 'Friend'}`}
+                : `Chat with ${currentChatFriend.username || currentChatFriend.name || 'Friend'}`}
 
             </span>
 
@@ -706,7 +740,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
         {/* Secret Chat Indicator Badge */}
 
-        {secretUnlocked && !inPlaceChatFriend && (
+        {mode !== 'computer' && secretUnlocked && !currentChatFriend && (
 
           <button
 
@@ -730,7 +764,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
       {/* Unmount embedded chat when leaving it so its socket, polling, and countdown stop. */}
 
-      {inPlaceChatFriend && activeBoardView === 'chat' && (
+      {currentChatFriend && activeBoardView === 'chat' && (
 
         <div className={`w-full rounded-3xl overflow-hidden border-2 border-amber-500/40 shadow-2xl bg-[#090e18] animate-in fade-in ${activeBoardView === 'chat' ? 'block' : 'hidden'}`}>
 
@@ -758,7 +792,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
               <span className="text-xs font-bold text-white">
 
-                Chat with {inPlaceChatFriend.name || inPlaceChatFriend.username} (In Place of Board)
+                Chat with {currentChatFriend.username || currentChatFriend.name || 'Friend'}
 
               </span>
 
@@ -774,29 +808,13 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
             </div>
 
-            <button
-
-              type="button"
-
-              onClick={() => onNavigate && onNavigate('chat')}
-
-              className="text-xs text-amber-400/90 hover:text-amber-300 font-bold hidden sm:flex items-center gap-1 transition-colors"
-
-            >
-
-              <span>Full Page</span>
-
-              <Sparkles className="w-3 h-3 text-amber-400" />
-
-            </button>
-
           </div>
 
           <Chat
 
             embedded={true}
 
-            inPlaceFriend={inPlaceChatFriend}
+            inPlaceFriend={currentChatFriend}
 
             onCloseInPlace={handleReturnToChessboard}
 
@@ -828,7 +846,7 @@ export default function Dashboard({ initialMode = 'computer', onNavigate, onGame
 
           player1Name={activeOnlineMatch ? (activeOnlineMatch.playerColor === 'w' ? user?.username : activeOnlineMatch.opponentName) : (user?.username || user?.name || 'Player 1')}
 
-          player2Name={activeOnlineMatch ? (activeOnlineMatch.playerColor === 'w' ? activeOnlineMatch.opponentName : user?.username) : (friendName || 'Friend (Player 2)')}
+          player2Name={activeOnlineMatch ? (activeOnlineMatch.playerColor === 'w' ? activeOnlineMatch.opponentName : user?.username) : (friendName || 'Friend')}
 
           onlineGameId={activeOnlineMatch?.gameId}
 

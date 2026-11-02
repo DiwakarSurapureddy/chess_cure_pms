@@ -505,7 +505,7 @@ export default function PlayWithFriends({ onNavigate, userProfile }) {
                     <span>Return to Chessboard</span>
                   </button>
                   <span className="text-xs text-amber-300 font-bold">
-                    Chat with {activeFriend?.name || 'Friend'} (In Place of Board)
+                    Chat with {activeFriend?.username || activeFriend?.name || 'Friend'}
                   </span>
                 </div>
                 <Chat

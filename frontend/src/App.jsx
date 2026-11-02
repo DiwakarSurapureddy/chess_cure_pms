@@ -41,11 +41,28 @@ function AppContent() {
     friendsList = [],
     sendMatchChallenge,
     checkChallengeStatus,
+    activeOnlineMatch,
     setActiveOnlineMatch
   } = useAuth();
   // Persistent active view across page refreshes
   const [currentView, setCurrentView] = useState(getInitialView);
-  const [selectedGameMode, setSelectedGameMode] = useState('computer');
+  const [selectedGameMode, setSelectedGameMode] = useState(() => {
+    try {
+      const savedMatch = localStorage.getItem('cc_active_online_match');
+      if (savedMatch) {
+        const parsed = JSON.parse(savedMatch);
+        if (parsed?.gameId) return 'online';
+      }
+    } catch {}
+    return 'computer';
+  });
+
+  // Keep selectedGameMode in sync with activeOnlineMatch
+  useEffect(() => {
+    if (activeOnlineMatch?.gameId) {
+      setSelectedGameMode('online');
+    }
+  }, [activeOnlineMatch]);
   const [onlineModalOpen, setOnlineModalOpen] = useState(false);
   const [modalTargetFriend, setModalTargetFriend] = useState(null);
   const [modalGameIdInput, setModalGameIdInput] = useState('');
@@ -215,9 +232,10 @@ function AppContent() {
         {/* Dashboard is kept mounted so chess board state (board, moves, FEN, timers) is NEVER destroyed when navigating to chat */}
         <div className={currentView === 'play' ? 'w-full flex-1 flex flex-col justify-center' : 'hidden'}>
           <Dashboard
-            key={selectedGameMode}
-            initialMode={selectedGameMode}
+            key={activeOnlineMatch ? 'online' : selectedGameMode}
+            initialMode={activeOnlineMatch ? 'online' : selectedGameMode}
             onNavigate={(tab) => navigateTo(tab)}
+            onModeChange={(newMode) => setSelectedGameMode(newMode)}
           />
         </div>
 

@@ -95,14 +95,55 @@ const ChessBoard = forwardRef(function ChessBoard({
   const { unlockSecretChat, isChatUnlocked } = useSecretChat();
   const showInstructions = preferences?.showInstructions ?? true;
 
-  const [chess] = useState(() => new Chess());
-  const [board, setBoard] = useState(chess.board());
-  const [playerColor, setPlayerColor] = useState(initialPlayerColor); // User's chosen side: 'w' or 'b'
+  const [chess] = useState(() => {
+    const instance = new Chess();
+    if (gameMode === 'computer') {
+      try {
+        const raw = localStorage.getItem('cc_saved_computer_game') || sessionStorage.getItem('cc_saved_computer_game');
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (saved && !saved.isGameOver) {
+            if (Array.isArray(saved.moves) && saved.moves.length > 0) {
+              for (const m of saved.moves) {
+                try { instance.move(m); } catch (e) {}
+              }
+            } else if (saved.pgn) {
+              try { instance.loadPgn(saved.pgn); } catch (e) {}
+            } else if (saved.fen && saved.fen !== 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1') {
+              try { instance.load(saved.fen); } catch (e) {}
+            }
+          }
+        }
+      } catch (e) {}
+    }
+    return instance;
+  });
+
+  const [board, setBoard] = useState(() => chess.board());
+  const [playerColor, setPlayerColor] = useState(() => {
+    if (gameMode === 'computer') {
+      try {
+        const raw = localStorage.getItem('cc_saved_computer_game') || sessionStorage.getItem('cc_saved_computer_game');
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (saved?.playerColor && !saved.isGameOver) return saved.playerColor;
+        }
+      } catch (e) {}
+    }
+    return initialPlayerColor;
+  });
   const [selectedSquare, setSelectedSquare] = useState(null);
   const [legalMoves, setLegalMoves] = useState([]);
-  const [lastMove, setLastMove] = useState(null);
-  const [turn, setTurn] = useState('w');
-  const [history, setHistory] = useState([]);
+  const [lastMove, setLastMove] = useState(() => {
+    const verboseHist = chess.history({ verbose: true });
+    if (verboseHist.length > 0) {
+      const lm = verboseHist[verboseHist.length - 1];
+      return { from: lm.from, to: lm.to };
+    }
+    return null;
+  });
+  const [turn, setTurn] = useState(() => chess.turn());
+  const [history, setHistory] = useState(() => [...chess.history()]);
   const [gameStatus, setGameStatus] = useState('In Progress');
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [hintSquare, setHintSquare] = useState(null);
@@ -112,8 +153,8 @@ const ChessBoard = forwardRef(function ChessBoard({
   const [onlineConnected, setOnlineConnected] = useState(false);
   const [onlineOpponentStatus, setOnlineOpponentStatus] = useState('');
   const [onlineCancelModalOpen, setOnlineCancelModalOpen] = useState(false);
-  const [capturedPieces, setCapturedPieces] = useState({ white: [], black: [] });
-  const [kingInCheck, setKingInCheck] = useState(null);
+  const [capturedPieces, setCapturedPieces] = useState(() => computeCapturedPieces(chess));
+  const [kingInCheck, setKingInCheck] = useState(() => getKingInCheckSquare(chess));
 
   const socketRef = useRef(null);
   const chatUnlockHandledRef = useRef(new Set());
@@ -180,6 +221,7 @@ const ChessBoard = forwardRef(function ChessBoard({
 
       // Clear single opponent override so user can chat with ANY friend from full list
       try {
+        if (user?.id) localStorage.removeItem(`cc_selected_chat_opponent_${user.id}`);
         localStorage.removeItem('cc_selected_chat_opponent');
       } catch (e) { }
 
@@ -196,8 +238,16 @@ const ChessBoard = forwardRef(function ChessBoard({
     // 2. VS FRIEND (two-player) OR ONLINE: chat of that specific friend visible in place of chessboard
     let targetFriend = null;
     if (gameMode === 'online') {
-      const oppId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId;
-      const oppName = activeOnlineMatch?.opponentName || player2Name || 'Online Friend';
+      let oppId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId;
+      let oppName = activeOnlineMatch?.opponentName || player2Name || 'Online Friend';
+      if (user && (oppId === user.id || oppId === user.playerId || oppName === user.username)) {
+        const otherName = activeOnlineMatch?.player1 === user.username ? activeOnlineMatch?.player2 : activeOnlineMatch?.player1;
+        if (otherName && otherName !== user.username) {
+          oppName = otherName;
+          const matched = friendsList.find((f) => f.username === otherName || f.name === otherName);
+          oppId = matched?.id || matched?.playerId || otherName;
+        }
+      }
       targetFriend = {
         id: oppId,
         playerId: oppId,
@@ -222,8 +272,8 @@ const ChessBoard = forwardRef(function ChessBoard({
         targetFriend = {
           id: player2Name || 'friend_p2',
           playerId: player2Name || 'friend_p2',
-          name: player2Name || 'Friend (Player 2)',
-          username: player2Name || 'Friend (Player 2)',
+          name: player2Name || 'Friend',
+          username: player2Name || 'Friend',
           mode: 'two-player',
         };
       }
@@ -244,13 +294,15 @@ const ChessBoard = forwardRef(function ChessBoard({
     }
 
     try {
-      localStorage.setItem('cc_selected_chat_opponent', JSON.stringify({
+      const payload = JSON.stringify({
         ...targetFriend,
         isUnlocked: true,
         expiresAt,
         timeRemainingSeconds: 300,
         unlockReason: reason,
-      }));
+      });
+      if (user?.id) localStorage.setItem(`cc_selected_chat_opponent_${user.id}`, payload);
+      localStorage.setItem('cc_selected_chat_opponent', payload);
     } catch (e) { }
 
     unlockSecretChat({
@@ -275,22 +327,43 @@ const ChessBoard = forwardRef(function ChessBoard({
   useEffect(() => {
     if (gameMode === 'computer') {
       try {
-        const raw = sessionStorage.getItem('cc_saved_computer_game');
+        const raw = localStorage.getItem('cc_saved_computer_game') || sessionStorage.getItem('cc_saved_computer_game');
         if (raw) {
           const saved = JSON.parse(raw);
-          if (saved && saved.fen && saved.fen !== 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' && chess.history().length === 0) {
-            chess.load(saved.fen);
-            setBoard(chess.board());
-            setTurn(chess.turn());
-            setHistory([...chess.history()]);
-            if (saved.capturedPieces) setCapturedPieces(saved.capturedPieces);
+          if (saved && !saved.isGameOver) {
             if (saved.chatUnlockCount) chatUnlockCountRef.current = saved.chatUnlockCount;
             if (saved.round1UnlockPly) round1UnlockPlyRef.current = saved.round1UnlockPly;
             if (saved.round2WindowStartPly) round2WindowStartPlyRef.current = saved.round2WindowStartPly;
+
+            if (chess.history().length === 0 && Array.isArray(saved.moves) && saved.moves.length > 0) {
+              chess.reset();
+              for (const m of saved.moves) {
+                try { chess.move(m); } catch (e) {}
+              }
+              setBoard(chess.board());
+              setTurn(chess.turn());
+              setHistory([...chess.history()]);
+              setCapturedPieces(computeCapturedPieces(chess));
+              setKingInCheck(getKingInCheckSquare(chess));
+              const verboseHist = chess.history({ verbose: true });
+              if (verboseHist.length > 0) {
+                const lm = verboseHist[verboseHist.length - 1];
+                setLastMove({ from: lm.from, to: lm.to });
+              }
+            }
+
             if (saved.playerColor) setPlayerColor(saved.playerColor);
+
+            // If it's Computer's turn when restored, trigger AI move!
+            const currentColor = saved.playerColor || playerColor;
+            if (chess.turn() !== currentColor && !chess.isGameOver()) {
+              makeAiMove(chess);
+            }
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('Failed to restore computer game state:', e);
+      }
     }
   }, [gameMode]);
 
@@ -321,14 +394,31 @@ const ChessBoard = forwardRef(function ChessBoard({
     setCapturedPieces(computeCapturedPieces(chess));
     if (gameMode === 'computer') {
       try {
-        sessionStorage.setItem('cc_saved_computer_game', JSON.stringify({
-          fen: chess.fen(),
-          chatUnlockCount: chatUnlockCountRef.current,
-          round1UnlockPly: round1UnlockPlyRef.current,
-          round2WindowStartPly: round2WindowStartPlyRef.current,
-          capturedPieces: computeCapturedPieces(chess),
-          playerColor,
-        }));
+        if (chess.isGameOver()) {
+          sessionStorage.removeItem('cc_saved_computer_game');
+          localStorage.removeItem('cc_saved_computer_game');
+        } else if (chess.history().length > 0) {
+          const verboseHist = chess.history({ verbose: true });
+          const lm = verboseHist.length > 0 ? { from: verboseHist[verboseHist.length - 1].from, to: verboseHist[verboseHist.length - 1].to } : null;
+          const gameData = {
+            fen: chess.fen(),
+            pgn: chess.pgn(),
+            moves: chess.history(),
+            chatUnlockCount: chatUnlockCountRef.current,
+            round1UnlockPly: round1UnlockPlyRef.current,
+            round2WindowStartPly: round2WindowStartPlyRef.current,
+            capturedPieces: computeCapturedPieces(chess),
+            playerColor,
+            aiDifficulty,
+            lastMove: lm,
+            isGameOver: false,
+          };
+          sessionStorage.setItem('cc_saved_computer_game', JSON.stringify(gameData));
+          localStorage.setItem('cc_saved_computer_game', JSON.stringify(gameData));
+        } else {
+          sessionStorage.removeItem('cc_saved_computer_game');
+          localStorage.removeItem('cc_saved_computer_game');
+        }
       } catch (e) {}
     }
     const inCheckSquare = getKingInCheckSquare(chess);
@@ -491,11 +581,19 @@ const ChessBoard = forwardRef(function ChessBoard({
 
   const getOpponentInfo = () => {
     if (gameMode === 'online') {
-      const oppName = playerColor === 'w' ? (player2Name || 'Opponent') : (player1Name || 'Opponent');
-      const oppId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId || oppName;
+      let oppName = playerColor === 'w' ? (player2Name || 'Opponent') : (player1Name || 'Opponent');
+      let oppId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId || oppName;
+      if (user && (oppId === user.id || oppId === user.playerId || oppName === user.username)) {
+        const otherName = activeOnlineMatch?.player1 === user.username ? activeOnlineMatch?.player2 : activeOnlineMatch?.player1;
+        if (otherName && otherName !== user.username) {
+          oppName = otherName;
+          const matched = friendsList.find((f) => f.username === otherName || f.name === otherName);
+          oppId = matched?.id || matched?.playerId || otherName;
+        }
+      }
       return { id: oppId, name: oppName, mode: 'online' };
     } else if (gameMode === 'two-player') {
-      const oppName = player2Name || 'Friend (Player 2)';
+      const oppName = player2Name || 'Friend';
       return { id: oppName, name: oppName, mode: 'two-player' };
     } else {
       return { id: 'computer', name: 'Computer', mode: 'computer' };
@@ -511,7 +609,10 @@ const ChessBoard = forwardRef(function ChessBoard({
       chatUnlockCountRef.current = roundNumber;
     }
     const reason = gameData.chat_unlock_reason || (roundNumber === 2 ? 'Piece captured within 5 moves (Chat 2 of 2)' : 'Piece captured within first 5 moves (Chat 1 of 2)');
-    const rawOppId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId || opp.id;
+    let rawOppId = activeOnlineMatch?.opponentPlayerId || activeOnlineMatch?.opponentId || opp.id;
+    if (user && (rawOppId === user.id || rawOppId === user.playerId)) {
+      rawOppId = opp.id;
+    }
     const matched = friendsList.find((f) =>
       (rawOppId && (f.id === rawOppId || f.playerId === rawOppId)) ||
       (opp.name && (f.username === opp.name || f.name === opp.name))
@@ -534,7 +635,7 @@ const ChessBoard = forwardRef(function ChessBoard({
     const unlockKey = `${onlineGameId || 'online'}:${oppId}:round_${roundNumber}`;
     if (!chatUnlockHandledRef.current.has(unlockKey)) {
       chatUnlockHandledRef.current.add(unlockKey);
-      if (token && oppId) {
+      if (token && oppId && (!user || (oppId !== user.id && oppId !== user.playerId))) {
         api.unlockChat(token, oppId, { reason, game_id: onlineGameId }).catch(() => { });
       }
       const rawExp = gameData.chat_expires_at;
@@ -548,13 +649,15 @@ const ChessBoard = forwardRef(function ChessBoard({
         : Math.max(0, Math.floor((expTime - Date.now()) / 1000)) || 300;
 
       try {
-        localStorage.setItem('cc_selected_chat_opponent', JSON.stringify({
+        const payload = JSON.stringify({
           ...targetFriend,
           isUnlocked: true,
           expiresAt,
           timeRemainingSeconds: timeRemaining,
           unlockReason: reason,
-        }));
+        });
+        if (user?.id) localStorage.setItem(`cc_selected_chat_opponent_${user.id}`, payload);
+        localStorage.setItem('cc_selected_chat_opponent', payload);
       } catch (e) { }
 
       unlockSecretChat({
@@ -868,6 +971,13 @@ const ChessBoard = forwardRef(function ChessBoard({
         ratingChange,
       });
     }
+
+    if (gameMode === 'computer') {
+      try {
+        sessionStorage.removeItem('cc_saved_computer_game');
+        localStorage.removeItem('cc_saved_computer_game');
+      } catch (e) {}
+    }
   };
 
   // AI Move logic - Powered by Built-in Smart Minimax Engine (Alpha-Beta Pruning & PST)
@@ -920,7 +1030,10 @@ const ChessBoard = forwardRef(function ChessBoard({
     chatUnlockCountRef.current = 0;
     round1UnlockPlyRef.current = null;
     round2WindowStartPlyRef.current = null;
-    try { sessionStorage.removeItem('cc_saved_computer_game'); } catch (e) {}
+    try {
+      sessionStorage.removeItem('cc_saved_computer_game');
+      localStorage.removeItem('cc_saved_computer_game');
+    } catch (e) {}
     chatUnlockHandledRef.current.clear();
     setSelectedSquare(null);
     setLegalMoves([]);
@@ -1158,7 +1271,7 @@ const ChessBoard = forwardRef(function ChessBoard({
                   ? 'Computer'
                   : gameMode === 'online'
                     ? (playerColor === 'w' ? (player2Name || 'Opponent') : (player1Name || 'Opponent'))
-                    : (player2Name || 'Friend (Player 2)')}
+                    : (player2Name || 'Friend')}
               </p>
             </div>
           </div>

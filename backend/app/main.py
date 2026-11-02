@@ -26,37 +26,54 @@ from app.services.chess_engine import ChessEngine
 import chess
 
 def apply_lightweight_migrations(db_engine):
-    from sqlalchemy import text
+    from sqlalchemy import inspect, text
     try:
-        with db_engine.connect() as conn:
-            try:
-                res = conn.execute(text("PRAGMA table_info(games)")).fetchall()
-                if res:
-                    cols = {r[1] for r in res}
-                    if "chat_unlocked" not in cols:
-                        conn.execute(text("ALTER TABLE games ADD COLUMN chat_unlocked BOOLEAN DEFAULT 0"))
-                    if "chat_unlock_count" not in cols:
-                        conn.execute(text("ALTER TABLE games ADD COLUMN chat_unlock_count INTEGER DEFAULT 0"))
-                    if "chat_expires_at" not in cols:
-                        conn.execute(text("ALTER TABLE games ADD COLUMN chat_expires_at TEXT"))
-                    if "chat_unlock_reason" not in cols:
-                        conn.execute(text("ALTER TABLE games ADD COLUMN chat_unlock_reason TEXT"))
-                    if "round1_unlock_ply" not in cols:
-                        conn.execute(text("ALTER TABLE games ADD COLUMN round1_unlock_ply INTEGER"))
-                    if "round2_window_start_ply" not in cols:
-                        conn.execute(text("ALTER TABLE games ADD COLUMN round2_window_start_ply INTEGER"))
-                    conn.commit()
+        insp = inspect(db_engine)
+        table_names = set(insp.get_table_names())
 
-                res_chat = conn.execute(text("PRAGMA table_info(chat_unlock_sessions)")).fetchall()
-                if res_chat:
-                    cols_chat = {r[1] for r in res_chat}
-                    if "game_id" not in cols_chat:
-                        conn.execute(text("ALTER TABLE chat_unlock_sessions ADD COLUMN game_id VARCHAR(36)"))
-                    if "unlock_count" not in cols_chat:
-                        conn.execute(text("ALTER TABLE chat_unlock_sessions ADD COLUMN unlock_count INTEGER DEFAULT 0"))
-                    conn.commit()
-            except Exception:
-                pass
+        with db_engine.connect() as conn:
+            # 1. games table columns
+            if "games" in table_names:
+                cols_games = {c["name"] for c in insp.get_columns("games")}
+                if "chat_unlocked" not in cols_games:
+                    conn.execute(text("ALTER TABLE games ADD COLUMN chat_unlocked BOOLEAN DEFAULT FALSE"))
+                if "chat_unlock_count" not in cols_games:
+                    conn.execute(text("ALTER TABLE games ADD COLUMN chat_unlock_count INTEGER DEFAULT 0"))
+                if "chat_expires_at" not in cols_games:
+                    conn.execute(text("ALTER TABLE games ADD COLUMN chat_expires_at TEXT"))
+                if "chat_unlock_reason" not in cols_games:
+                    conn.execute(text("ALTER TABLE games ADD COLUMN chat_unlock_reason TEXT"))
+                if "round1_unlock_ply" not in cols_games:
+                    conn.execute(text("ALTER TABLE games ADD COLUMN round1_unlock_ply INTEGER"))
+                if "round2_window_start_ply" not in cols_games:
+                    conn.execute(text("ALTER TABLE games ADD COLUMN round2_window_start_ply INTEGER"))
+                conn.commit()
+
+            # 2. chat_unlock_sessions table columns
+            if "chat_unlock_sessions" in table_names:
+                cols_chat = {c["name"] for c in insp.get_columns("chat_unlock_sessions")}
+                if "game_id" not in cols_chat:
+                    conn.execute(text("ALTER TABLE chat_unlock_sessions ADD COLUMN game_id VARCHAR(36)"))
+                if "unlock_count" not in cols_chat:
+                    conn.execute(text("ALTER TABLE chat_unlock_sessions ADD COLUMN unlock_count INTEGER DEFAULT 0"))
+                conn.commit()
+
+            # 3. chat_messages table columns & indices
+            if "chat_messages" in table_names:
+                cols_msg = {c["name"] for c in insp.get_columns("chat_messages")}
+                if "client_message_id" not in cols_msg:
+                    conn.execute(text("ALTER TABLE chat_messages ADD COLUMN client_message_id VARCHAR(64)"))
+                conn.commit()
+
+                # Ensure required indices exist
+                indices_msg = {idx["name"] for idx in insp.get_indexes("chat_messages") if idx.get("name")}
+                if "ix_chat_messages_client_message_id" not in indices_msg:
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_messages_client_message_id ON chat_messages (client_message_id)"))
+                if "ix_chat_messages_created_at" not in indices_msg:
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_messages_created_at ON chat_messages (created_at)"))
+                if "ix_chat_messages_conversation" not in indices_msg:
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_messages_conversation ON chat_messages (sender_id, receiver_id, created_at)"))
+                conn.commit()
     except Exception:
         pass
 

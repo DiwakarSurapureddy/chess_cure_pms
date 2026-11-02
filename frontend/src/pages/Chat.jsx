@@ -21,12 +21,15 @@ import {
   ShieldCheck,
   CheckCheck,
   Phone,
-  PhoneOff
+  PhoneOff,
+  RotateCcw,
+  Loader2
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../context/AuthContext';
 import { useSecretChat } from '../context/SecretChatContext';
 import api from '../services/api';
+import { parseUtcDate, getDateSeparatorLabel, groupMessagesWithSeparators } from '../utils/chatDateUtils';
 
 const CHESS_EMOJIS = [
   '♟️', '♞', '♝', '♜', '♛', '♚', '⚔️', '👑', '🏆', '🎯', '🧠', '♟',
@@ -40,23 +43,14 @@ const CHESS_EMOJIS = [
 ];
 
 const QUICK_PROMPTS = [
-  '⚔️ Ready for a match!',
   '♞ Analyze opening moves',
   '🛡️ Defend king tactics',
   '🎯 Great game earlier!',
-  '🏆 Good luck in your matches!',
 ];
 
 const EMPTY_FRIENDS = [];
 
-const parseUtcDate = (d) => {
-  if (!d) return null;
-  if (d instanceof Date) return d;
-  const s = String(d).trim();
-  if (!s) return null;
-  const hasTz = s.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(s);
-  return new Date(hasTz ? s : s + 'Z');
-};
+// parseUtcDate imported from chatDateUtils
 
 const formatMessageTime = (message) => {
   const rawCreatedAt = message?.createdAt;
@@ -89,6 +83,80 @@ const formatLastSeen = (value) => {
   return `Last seen ${day} at ${time}`;
 };
 
+// Module-level session memory cache keyed by canonical room key `${userId1}:${userId2}` (sorted UUIDs)
+const conversationCache = new Map();
+
+export const clearChatConversationCache = () => {
+  conversationCache.clear();
+};
+
+export const getConversationCacheKey = (userId, friendId) => {
+  if (!userId || !friendId) return null;
+  return [String(userId), String(friendId)].sort().join(':');
+};
+
+export const mergeMessages = (existingMessages = [], incomingMessages = []) => {
+  const map = new Map();
+  const cids = new Map();
+
+  const upsert = (msg) => {
+    if (!msg) return;
+    const cid = msg.clientMessageId || msg.client_message_id;
+    const sId = msg.id;
+
+    let existingKey = null;
+    if (cid && cids.has(cid)) {
+      existingKey = cids.get(cid);
+    } else if (sId && map.has(sId)) {
+      existingKey = sId;
+    }
+
+    if (existingKey && map.has(existingKey)) {
+      const existing = map.get(existingKey);
+      const isServerId = sId && !String(sId).startsWith('c_');
+      const merged = {
+        ...existing,
+        ...msg,
+        id: isServerId ? sId : existing.id,
+        status: isServerId ? 'sent' : (msg.status || existing.status || 'sent'),
+      };
+      map.set(existingKey, merged);
+      if (isServerId && existingKey !== sId) {
+        map.delete(existingKey);
+        map.set(sId, merged);
+        if (cid) cids.set(cid, sId);
+      }
+    } else {
+      const isServerId = sId && !String(sId).startsWith('c_');
+      const key = isServerId ? sId : (cid || sId || `m_${Math.random()}`);
+      const entry = {
+        ...msg,
+        status: msg.status || (isServerId ? 'sent' : 'pending'),
+      };
+      map.set(key, entry);
+      if (cid) cids.set(cid, key);
+      if (isServerId) map.set(sId, entry);
+    }
+  };
+
+  for (const m of existingMessages) {
+    upsert(m);
+  }
+  for (const m of incomingMessages) {
+    upsert(m);
+  }
+
+  const result = Array.from(new Set(map.values()));
+  result.sort((a, b) => {
+    const timeA = (a.createdAt ? parseUtcDate(a.createdAt)?.getTime() : null) || 0;
+    const timeB = (b.createdAt ? parseUtcDate(b.createdAt)?.getTime() : null) || 0;
+    if (timeA !== timeB) return timeA - timeB;
+    return String(a.id || a.clientMessageId || '').localeCompare(String(b.id || b.clientMessageId || ''));
+  });
+
+  return result;
+};
+
 export default function Chat({
   onNavigate,
   embedded = false,
@@ -104,21 +172,46 @@ export default function Chat({
     respondFriendRequest,
     sendMatchChallenge,
     fetchFriendsAndNotifications,
+    activeOnlineMatch,
     setActiveOnlineMatch
   } = useAuth();
 
   const { isChatUnlocked: contextUnlocked, timeRemaining: contextRemaining, formattedTime: contextFormattedTime, unlockSecretChat, expiresAt: contextExpiresAt, unlockReason: contextUnlockReason } = useSecretChat ? (useSecretChat() || {}) : {};
 
   // Selected Friend in Chat
+  const isSelfId = React.useCallback((id) => {
+    if (!id || !user) return false;
+    return String(id) === String(user.id) || String(id) === String(user.playerId);
+  }, [user]);
+
   const [selectedFriendId, setSelectedFriendId] = useState(() => {
-    if (inPlaceFriend) return inPlaceFriend.id || inPlaceFriend.playerId;
+    const isSelf = (id) => {
+      if (!id || !user) return false;
+      return String(id) === String(user.id) || String(id) === String(user.playerId);
+    };
+
+    if (inPlaceFriend) {
+      const fid = inPlaceFriend.id || inPlaceFriend.playerId;
+      if (!isSelf(fid)) return fid;
+    }
+    if (activeOnlineMatch) {
+      let oppId = activeOnlineMatch.opponentPlayerId || activeOnlineMatch.opponentId;
+      if (oppId && isSelf(oppId)) {
+        const otherPlayer = activeOnlineMatch.player1 === user?.username ? activeOnlineMatch.player2 : activeOnlineMatch.player1;
+        oppId = otherPlayer;
+      }
+      if (oppId && !isSelf(oppId)) return oppId;
+    }
     try {
-      const pending = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null');
-      if (pending?.id || pending?.playerId) return pending.id || pending.playerId;
+      const userKey = user?.id ? `cc_selected_chat_opponent_${user.id}` : 'cc_selected_chat_opponent';
+      const pending = JSON.parse(localStorage.getItem(userKey) || localStorage.getItem('cc_selected_chat_opponent') || 'null');
+      const pId = pending?.id || pending?.playerId;
+      if (pId && !isSelf(pId)) return pId;
     } catch {}
     try {
-      const saved = localStorage.getItem('cc_last_selected_friend');
-      if (saved) return saved;
+      const lastKey = user?.id ? `cc_last_selected_friend_${user.id}` : 'cc_last_selected_friend';
+      const saved = localStorage.getItem(lastKey) || localStorage.getItem('cc_last_selected_friend');
+      if (saved && !isSelf(saved)) return saved;
     } catch {}
     return null;
   });
@@ -138,6 +231,44 @@ export default function Chat({
 
   // Active Chat Status & Messages State
   const [chatMessages, setChatMessages] = useState([]);
+  const [isLoadingChat, setIsLoadingChat] = useState(false);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const chatCacheRef = useRef({});
+  const activeFriendIdRef = useRef(null);
+  const canonicalFriendMapRef = useRef(new Map());
+  const lastAuthUserIdRef = useRef(user?.id);
+
+  const registerCanonicalFriend = React.useCallback((friendObj) => {
+    if (!friendObj) return;
+    if (friendObj.id) canonicalFriendMapRef.current.set(String(friendObj.id), friendObj);
+    if (friendObj.playerId) canonicalFriendMapRef.current.set(String(friendObj.playerId), friendObj);
+    if (friendObj.username) canonicalFriendMapRef.current.set(String(friendObj.username).toLowerCase(), friendObj);
+  }, []);
+
+  useEffect(() => {
+    if (Array.isArray(friendsList)) {
+      friendsList.forEach(registerCanonicalFriend);
+    }
+  }, [friendsList, registerCanonicalFriend]);
+
+  useEffect(() => {
+    const handleLogout = () => {
+      clearChatConversationCache();
+      setChatMessages([]);
+    };
+    window.addEventListener('chess_cure_chat_logout', handleLogout);
+    return () => {
+      window.removeEventListener('chess_cure_chat_logout', handleLogout);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (user?.id !== lastAuthUserIdRef.current) {
+      clearChatConversationCache();
+      lastAuthUserIdRef.current = user?.id;
+    }
+  }, [user?.id]);
   const [chatStatus, setChatStatus] = useState(() => {
     if (inPlaceFriend?.expiresAt) {
       const expDate = parseUtcDate(inPlaceFriend.expiresAt);
@@ -375,28 +506,52 @@ export default function Chat({
     releaseCall();
   };
 
-  // If embedded in-place friend is passed, synchronize selection
+  // If embedded in-place friend or active online match is passed, synchronize selection
   useEffect(() => {
     if (inPlaceFriend) {
       const fid = inPlaceFriend.id || inPlaceFriend.playerId;
-      setSelectedFriendId(fid);
-      setMobileView('chat');
+      if (fid && !isSelfId(fid)) {
+        setSelectedFriendId(fid);
+        setMobileView('chat');
+        return;
+      }
     }
-  }, [inPlaceFriend]);
+
+    if (activeOnlineMatch) {
+      let oppId = activeOnlineMatch.opponentPlayerId || activeOnlineMatch.opponentId;
+      if (oppId && isSelfId(oppId)) {
+        const otherPlayer = activeOnlineMatch.player1 === user?.username ? activeOnlineMatch.player2 : activeOnlineMatch.player1;
+        const matched = friendsList.find((f) => f.username === otherPlayer || f.name === otherPlayer);
+        oppId = matched?.id || matched?.playerId || otherPlayer;
+      }
+      if (oppId && !isSelfId(oppId)) {
+        setSelectedFriendId(oppId);
+        setMobileView('chat');
+        return;
+      }
+    }
+  }, [inPlaceFriend, activeOnlineMatch, isSelfId, user, friendsList]);
 
   // Initial selection of friend
   useEffect(() => {
     if (inPlaceFriend) return;
 
     let pending = null;
-    try { pending = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null'); } catch {}
+    try {
+      const scopedKey = user?.id ? `cc_selected_chat_opponent_${user.id}` : 'cc_selected_chat_opponent';
+      pending = JSON.parse(localStorage.getItem(scopedKey) || localStorage.getItem('cc_selected_chat_opponent') || 'null');
+    } catch {}
     const isPendingActive = pending && pending.expiresAt && parseUtcDate(pending.expiresAt).getTime() > Date.now();
     const pendingId = pending?.id || pending?.playerId;
+    const isValidPending = pendingId && !isSelfId(pendingId);
 
     // Prioritize active 5-minute online unlocked opponent!
-    if (isPendingActive && pendingId) {
+    if (isPendingActive && isValidPending) {
       setSelectedFriendId(pendingId);
-      try { localStorage.setItem('cc_last_selected_friend', pendingId); } catch {}
+      try {
+        const lastKey = user?.id ? `cc_last_selected_friend_${user.id}` : 'cc_last_selected_friend';
+        localStorage.setItem(lastKey, pendingId);
+      } catch {}
       setMobileView('chat');
       return;
     }
@@ -405,37 +560,88 @@ export default function Chat({
       return;
     }
 
+    if (isSelfId(selectedFriendId)) {
+      const validFriend = friendsList.find((f) => !isSelfId(f.id) && !isSelfId(f.playerId));
+      if (validFriend) {
+        const fid = validFriend.id || validFriend.playerId;
+        setSelectedFriendId(fid);
+        try {
+          const lastKey = user?.id ? `cc_last_selected_friend_${user.id}` : 'cc_last_selected_friend';
+          localStorage.setItem(lastKey, fid);
+        } catch {}
+      }
+      return;
+    }
+
     if (selectedFriendId && friendsList.some((friend) =>
-      friend.id === selectedFriendId || friend.playerId === selectedFriendId
+      (friend.id === selectedFriendId || friend.playerId === selectedFriendId) && !isSelfId(selectedFriendId)
     )) return;
 
     const preferredFriend = friendsList.find((friend) =>
-      [friend.id, friend.playerId].some((id) => String(id) === String(pending?.id || pending?.playerId))
+      isValidPending && [friend.id, friend.playerId].some((id) => String(id) === String(pendingId)) && !isSelfId(friend.id)
     );
 
     if (preferredFriend) {
       const fid = preferredFriend.id || preferredFriend.playerId;
       setSelectedFriendId(fid);
-      try { localStorage.setItem('cc_last_selected_friend', fid); } catch {}
+      try {
+        const lastKey = user?.id ? `cc_last_selected_friend_${user.id}` : 'cc_last_selected_friend';
+        localStorage.setItem(lastKey, fid);
+      } catch {}
       setMobileView('chat');
-    } else if (friendsList[0] && !selectedFriendId) {
-      const fid = friendsList[0].id || friendsList[0].playerId;
-      setSelectedFriendId(fid);
-      try { localStorage.setItem('cc_last_selected_friend', fid); } catch {}
+    } else {
+      const validFirst = friendsList.find((f) => !isSelfId(f.id) && !isSelfId(f.playerId));
+      if (validFirst && (!selectedFriendId || isSelfId(selectedFriendId))) {
+        const fid = validFirst.id || validFirst.playerId;
+        setSelectedFriendId(fid);
+        try {
+          const lastKey = user?.id ? `cc_last_selected_friend_${user.id}` : 'cc_last_selected_friend';
+          localStorage.setItem(lastKey, fid);
+        } catch {}
+      }
     }
-  }, [friendsList, selectedFriendId, inPlaceFriend]);
+  }, [friendsList, selectedFriendId, inPlaceFriend, isSelfId, user?.id, user?.playerId]);
 
   // Resolve active friend with canonical matching
   const pendingOpponent = (() => {
     try {
-      const p = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null');
-      if (p && (p.id === selectedFriendId || p.playerId === selectedFriendId)) return p;
+      const scopedKey = user?.id ? `cc_selected_chat_opponent_${user.id}` : 'cc_selected_chat_opponent';
+      const p = JSON.parse(localStorage.getItem(scopedKey) || localStorage.getItem('cc_selected_chat_opponent') || 'null');
+      if (p) {
+        const pId = p.id || p.playerId;
+        if (pId && isSelfId(pId)) return null;
+        if (p.name && user && p.name === user.username) return null;
+        if (p.id === selectedFriendId || p.playerId === selectedFriendId) return p;
+      }
     } catch {}
     return null;
   })();
 
+  const activeMatchOpponent = React.useMemo(() => {
+    if (!activeOnlineMatch) return null;
+    let oppId = activeOnlineMatch.opponentId || activeOnlineMatch.opponentPlayerId;
+    let oppName = activeOnlineMatch.opponentName;
+    if (user && (oppId === user.id || oppId === user.playerId || oppName === user.username)) {
+      const otherName = activeOnlineMatch.player1 === user.username ? activeOnlineMatch.player2 : activeOnlineMatch.player1;
+      if (otherName && otherName !== user.username) {
+        oppName = otherName;
+        const matched = friendsList.find((f) => f.username === otherName || f.name === otherName);
+        oppId = matched?.id || matched?.playerId || otherName;
+      } else {
+        return null;
+      }
+    }
+    return {
+      id: oppId,
+      playerId: oppId,
+      name: oppName,
+      username: oppName,
+      mode: 'online',
+    };
+  }, [activeOnlineMatch, user, friendsList]);
+
   const canonicalOpponent = React.useMemo(() => {
-    const target = inPlaceFriend || pendingOpponent;
+    const target = inPlaceFriend || activeMatchOpponent || pendingOpponent;
     if (!target) return null;
     const found = friendsList.find(
       (f) => (target.id && (f.id === target.id || f.playerId === target.id)) ||
@@ -443,32 +649,68 @@ export default function Chat({
              (target.username && (f.username === target.username || f.name === target.username)) ||
              (target.name && (f.name === target.name || f.username === target.name))
     );
-    return found ? { ...target, ...found, id: found.id, playerId: found.playerId } : target;
-  }, [inPlaceFriend, pendingOpponent, friendsList]);
+    if (found) {
+      return { ...target, ...found, id: found.id, playerId: found.playerId };
+    }
+    const resolved = canonicalFriendMapRef.current.get(String(target.id)) ||
+                     canonicalFriendMapRef.current.get(String(target.playerId)) ||
+                     canonicalFriendMapRef.current.get(String(target.username || '').toLowerCase());
+    if (resolved) {
+      return { ...target, ...resolved, id: resolved.id, playerId: resolved.playerId || target.playerId };
+    }
+    return target;
+  }, [inPlaceFriend, activeMatchOpponent, pendingOpponent, friendsList]);
 
   const selectedFriendFromList = React.useMemo(() => {
-    if (!selectedFriendId) return null;
-    return friendsList.find(
+    if (!selectedFriendId || isSelfId(selectedFriendId)) return null;
+    const found = friendsList.find(
       (f) => f.id === selectedFriendId || f.playerId === selectedFriendId
-    ) || null;
-  }, [selectedFriendId, friendsList]);
+    );
+    if (found) return found;
+    const resolved = canonicalFriendMapRef.current.get(String(selectedFriendId));
+    if (resolved) return resolved;
+    return null;
+  }, [selectedFriendId, friendsList, isSelfId]);
 
-  const activeFriend = selectedFriendFromList || canonicalOpponent || (selectedFriendId ? {
+  const activeFriend = selectedFriendFromList || canonicalOpponent || (selectedFriendId && !isSelfId(selectedFriendId) ? {
     id: selectedFriendId,
     playerId: selectedFriendId,
     name: 'Friend',
     username: 'Friend',
-  } : friendsList[0] || null);
+  } : friendsList.find((f) => !isSelfId(f.id) && !isSelfId(f.playerId)) || null);
 
   const activeFriendParam = activeFriend?.id || activeFriend?.playerId;
-  const canMessageActiveFriend = Boolean(chatStatus.isFriend || chatStatus.isUnlocked || contextUnlocked);
+
+  const activeFriendIdentifiers = React.useMemo(() => {
+    const ids = new Set();
+    if (activeFriend?.id) ids.add(String(activeFriend.id));
+    if (activeFriend?.playerId) ids.add(String(activeFriend.playerId));
+    if (selectedFriendId && !isSelfId(selectedFriendId)) ids.add(String(selectedFriendId));
+    if (activeOnlineMatch?.opponentId && !isSelfId(activeOnlineMatch.opponentId)) ids.add(String(activeOnlineMatch.opponentId));
+    if (activeOnlineMatch?.opponentPlayerId && !isSelfId(activeOnlineMatch.opponentPlayerId)) ids.add(String(activeOnlineMatch.opponentPlayerId));
+    if (activeFriendParam && !isSelfId(activeFriendParam)) ids.add(String(activeFriendParam));
+
+    const resolved = canonicalFriendMapRef.current.get(String(activeFriendParam)) ||
+                     (activeFriend?.id ? canonicalFriendMapRef.current.get(String(activeFriend.id)) : null) ||
+                     (activeFriend?.playerId ? canonicalFriendMapRef.current.get(String(activeFriend.playerId)) : null);
+    if (resolved?.id && !isSelfId(resolved.id)) ids.add(String(resolved.id));
+    if (resolved?.playerId && !isSelfId(resolved.playerId)) ids.add(String(resolved.playerId));
+
+    return ids;
+  }, [activeFriend, selectedFriendId, activeOnlineMatch, activeFriendParam, isSelfId]);
+
+  const canMessageActiveFriend = Boolean(chatStatus.isFriend || chatStatus.isUnlocked || chatStatus.canChat || contextUnlocked);
+  const isHintSelected = QUICK_PROMPTS.some(
+    (p) => p.trim() === inputVal.trim() || (inputVal.trim() && p.includes(inputVal.trim()))
+  );
+  const canSendMessage = Boolean(canMessageActiveFriend || isHintSelected || embedded || activeOnlineMatch);
 
   useEffect(() => {
     let isMounted = true;
     let interval = null;
 
     const refreshPresence = async () => {
-      if (!activeFriendParam || !token) return;
+      if (!activeFriendParam || !token || isSelfId(activeFriendParam)) return;
       try {
         const result = await api.getFriendPresence(token, activeFriendParam);
         if (isMounted && result?.success) {
@@ -494,25 +736,118 @@ export default function Chat({
     };
   }, [activeFriendParam, token]);
 
-  // Sync status and messages for active friend
+  // Reconcile optimistic, server-confirmed, and incoming WebSocket messages
+  const handleIncomingOrAckMessage = React.useCallback((incoming) => {
+    if (!incoming) return;
+    const cid = incoming.clientMessageId || incoming.client_message_id;
+    const sId = incoming.id;
+
+    setChatMessages((prev) => {
+      // 1. Look for matching optimistic message by clientMessageId
+      if (cid) {
+        const cIdx = prev.findIndex((m) => (m.clientMessageId && m.clientMessageId === cid) || m.id === cid);
+        if (cIdx !== -1) {
+          const updated = [...prev];
+          const isServerId = sId && !String(sId).startsWith('c_');
+          updated[cIdx] = {
+            ...prev[cIdx],
+            ...incoming,
+            id: isServerId ? sId : prev[cIdx].id,
+            status: isServerId ? 'sent' : (incoming.status || 'sent'),
+          };
+          return updated;
+        }
+      }
+
+      // 2. Look for matching message by server id
+      if (sId && !String(sId).startsWith('c_')) {
+        const sIdx = prev.findIndex((m) => m.id === sId);
+        if (sIdx !== -1) {
+          const updated = [...prev];
+          updated[sIdx] = {
+            ...prev[sIdx],
+            ...incoming,
+            status: 'sent',
+          };
+          return updated;
+        }
+      }
+
+      // 3. Otherwise, check if message belongs to current conversation
+      const isMyMessage = incoming.senderId === user?.id;
+      const otherPartyId = isMyMessage ? incoming.receiverId : incoming.senderId;
+      const belongsToActiveChat = (
+        activeFriendIdentifiers.has(String(otherPartyId)) ||
+        (activeFriendIdRef.current && String(otherPartyId) === String(activeFriendIdRef.current))
+      );
+      if (!belongsToActiveChat) return prev;
+
+      return mergeMessages(prev, [{ ...incoming, status: 'sent' }]);
+    });
+  }, [user?.id, activeFriendIdentifiers]);
+
+  // Load older messages for pagination
+  const loadOlderMessages = async () => {
+    if (!activeFriendParam || !token || isLoadingOlder || !hasMoreOlder || chatMessages.length === 0) return;
+    setIsLoadingOlder(true);
+    try {
+      const oldestServerMsg = chatMessages.find((m) => m.id && !String(m.id).startsWith('c_')) || chatMessages[0];
+      const beforeParam = oldestServerMsg?.createdAt || oldestServerMsg?.id;
+      const res = await api.getChatMessages(token, activeFriendParam, { limit: 50, before: beforeParam });
+      if (res && res.success && Array.isArray(res.messages)) {
+        if (res.friend) registerCanonicalFriend(res.friend);
+        const serverMsgs = res.messages.map((m) => ({ ...m, status: 'sent' }));
+        setChatMessages((prev) => {
+          const merged = mergeMessages(prev, serverMsgs);
+          const canonicalId = res.friend?.id || canonicalFriendMapRef.current.get(String(activeFriendParam))?.id || activeFriendParam;
+          const cacheKey = getConversationCacheKey(user?.id, canonicalId);
+          if (cacheKey) {
+            conversationCache.set(cacheKey, {
+              messages: merged,
+              hasMore: Boolean(res.hasMore),
+            });
+          }
+          return merged;
+        });
+        setHasMoreOlder(Boolean(res.hasMore));
+      }
+    } catch (err) {
+      console.warn('Failed to load older messages:', err);
+    } finally {
+      setIsLoadingOlder(false);
+    }
+  };
+
+  // Sync status and messages for active friend in a single unified API call
   const syncActiveChat = async () => {
     if (!activeFriendParam || !token || chatSyncInFlightRef.current === activeFriendParam) return;
+    if (isSelfId(activeFriendParam)) return;
     chatSyncInFlightRef.current = activeFriendParam;
-    const currentVersion = chatStatusRequestVersionRef.current;
+    const requestedParam = activeFriendParam;
 
     try {
-      const [statusRes, msgRes] = await Promise.all([
-        api.getChatStatus(token, activeFriendParam).catch(() => null),
-        api.getChatMessages(token, activeFriendParam).catch(() => null),
-      ]);
+      const msgRes = await api.getChatMessages(token, activeFriendParam, { limit: 50 }).catch(() => null);
 
-      if (currentVersion !== chatStatusRequestVersionRef.current) return;
+      const friendResId = msgRes?.friend?.id;
+      const friendResPlayerId = msgRes?.friend?.playerId;
+      const isSameFriend = (
+        activeFriendIdRef.current === requestedParam ||
+        activeFriendIdentifiers.has(String(requestedParam)) ||
+        (friendResId && activeFriendIdentifiers.has(String(friendResId))) ||
+        (friendResPlayerId && activeFriendIdentifiers.has(String(friendResPlayerId)))
+      );
 
-      if (statusRes && statusRes.success) {
-        const nextUnlocked = Boolean(statusRes.isUnlocked);
-        const expiresAt = statusRes.expiresAt;
+      if (!isSameFriend) return;
+
+      if (msgRes && msgRes.success) {
+        if (msgRes.friend) {
+          registerCanonicalFriend(msgRes.friend);
+        }
+
+        const nextUnlocked = Boolean(msgRes.isUnlocked);
+        const expiresAt = msgRes.expiresAt;
         const expDate = parseUtcDate(expiresAt);
-        const diffSeconds = expDate ? Math.max(0, Math.floor((expDate.getTime() - Date.now()) / 1000)) : (statusRes.timeRemainingSeconds || 0);
+        const diffSeconds = expDate ? Math.max(0, Math.floor((expDate.getTime() - Date.now()) / 1000)) : (msgRes.timeRemainingSeconds || 0);
 
         setChatStatus((prev) => {
           const globalExpDate = parseUtcDate(contextExpiresAt);
@@ -522,35 +857,48 @@ export default function Chat({
           if ((globalHasActiveTime || localHasActiveTime) && !nextUnlocked) {
             return {
               ...prev,
-              isFriend: Boolean(statusRes.isFriend),
+              isFriend: Boolean(msgRes.isFriend ?? prev.isFriend),
+              canChat: Boolean(msgRes.canChat ?? prev.canChat),
+              canRead: Boolean(msgRes.canRead ?? true),
               isUnlocked: true,
               expiresAt: globalHasActiveTime ? contextExpiresAt : prev.expiresAt,
             };
           }
           const isSameSession = prev.isUnlocked && nextUnlocked && prev.expiresAt === expiresAt;
           return {
-            isFriend: Boolean(statusRes.isFriend),
+            isFriend: Boolean(msgRes.isFriend ?? prev.isFriend),
+            canChat: Boolean(msgRes.canChat ?? prev.canChat),
+            canRead: Boolean(msgRes.canRead ?? true),
             isUnlocked: nextUnlocked || localHasActiveTime || globalHasActiveTime,
             timeRemainingSeconds: isSameSession ? prev.timeRemainingSeconds : diffSeconds,
             expiresAt: expiresAt || (globalHasActiveTime ? contextExpiresAt : prev.expiresAt),
-            unlockReason: statusRes.unlockReason || prev.unlockReason,
+            unlockReason: msgRes.unlockReason || prev.unlockReason,
           };
         });
-      }
 
-      if (msgRes && msgRes.success && Array.isArray(msgRes.messages)) {
-        setChatMessages((prev) => {
-          if (prev.length === msgRes.messages.length &&
-              prev.every((m, idx) => m.id === msgRes.messages[idx]?.id)) {
-            return prev;
-          }
-          return msgRes.messages;
-        });
+        if (Array.isArray(msgRes.messages)) {
+          setIsLoadingChat(false);
+          const serverMsgs = msgRes.messages.map((m) => ({ ...m, status: 'sent' }));
+          setChatMessages((prev) => {
+            const merged = mergeMessages(prev, serverMsgs);
+            const canonicalId = msgRes.friend?.id || canonicalFriendMapRef.current.get(String(requestedParam))?.id || requestedParam;
+            const cacheKey = getConversationCacheKey(user?.id, canonicalId);
+            if (cacheKey) {
+              conversationCache.set(cacheKey, {
+                messages: merged,
+                hasMore: Boolean(msgRes.hasMore),
+              });
+            }
+            return merged;
+          });
+          setHasMoreOlder(Boolean(msgRes.hasMore));
+        }
       }
     } catch (e) {
       console.warn('Chat sync error:', e);
     } finally {
-      if (chatSyncInFlightRef.current === activeFriendParam) {
+      setIsLoadingChat(false);
+      if (chatSyncInFlightRef.current === requestedParam) {
         chatSyncInFlightRef.current = null;
       }
     }
@@ -559,8 +907,38 @@ export default function Chat({
   // Poll status & messages when active friend changes
   useEffect(() => {
     chatStatusRequestVersionRef.current += 1;
+    activeFriendIdRef.current = activeFriendParam;
     setInputVal('');
     setSendError('');
+
+    // Clear stale messages or show cached immediately
+    if (activeFriendParam && !isSelfId(activeFriendParam)) {
+      const canonicalId = canonicalFriendMapRef.current.get(String(activeFriendParam))?.id || activeFriendParam;
+      const cacheKey = getConversationCacheKey(user?.id, canonicalId) || getConversationCacheKey(user?.id, activeFriendParam);
+      const cached = cacheKey ? conversationCache.get(cacheKey) : null;
+      if (cached && Array.isArray(cached.messages) && cached.messages.length > 0) {
+        setChatMessages(cached.messages);
+        setHasMoreOlder(Boolean(cached.hasMore));
+        setIsLoadingChat(false);
+      } else {
+        setChatMessages((prev) => {
+          if (prev && prev.length > 0) {
+            const belongs = prev.some((m) =>
+              activeFriendIdentifiers.has(String(m.senderId || m.sender_id)) ||
+              activeFriendIdentifiers.has(String(m.receiverId || m.receiver_id))
+            );
+            if (belongs) return prev;
+          }
+          return [];
+        });
+        setHasMoreOlder(false);
+        setIsLoadingChat(true);
+      }
+    } else {
+      setChatMessages([]);
+      setHasMoreOlder(false);
+      setIsLoadingChat(false);
+    }
 
     // If global context is active from game unlock, preserve it across friend changes!
     const globalExpDate = parseUtcDate(contextExpiresAt);
@@ -575,7 +953,8 @@ export default function Chat({
     } else {
       // Check localStorage for immediate unlock session
       try {
-        const pending = JSON.parse(localStorage.getItem('cc_selected_chat_opponent') || 'null');
+        const scopedKey = user?.id ? `cc_selected_chat_opponent_${user.id}` : 'cc_selected_chat_opponent';
+        const pending = JSON.parse(localStorage.getItem(scopedKey) || localStorage.getItem('cc_selected_chat_opponent') || 'null');
         if (pending && (pending.id === activeFriendParam || pending.playerId === activeFriendParam) && pending.expiresAt) {
           const pendingExpDate = parseUtcDate(pending.expiresAt);
           const remaining = pendingExpDate ? Math.max(0, Math.floor((pendingExpDate.getTime() - Date.now()) / 1000)) : 0;
@@ -591,21 +970,26 @@ export default function Chat({
       } catch {}
     }
 
-    if (!activeFriendParam) return;
+    if (!activeFriendParam || isSelfId(activeFriendParam)) return;
     syncActiveChat();
 
     if (chatPollRef.current) clearInterval(chatPollRef.current);
-    chatPollRef.current = setInterval(syncActiveChat, 10000);
+    chatPollRef.current = setInterval(() => {
+      // Only poll when WebSocket is not actively open
+      if (chatSocketRef.current?.readyState !== WebSocket.OPEN) {
+        syncActiveChat();
+      }
+    }, 12000);
 
     return () => {
       if (chatPollRef.current) clearInterval(chatPollRef.current);
     };
-  }, [activeFriendParam, token]);
+  }, [activeFriendParam, token, isSelfId]);
 
   // Stream new messages directly from the backend. HTTP polling above remains
   // as a recovery path while a socket reconnects or the proxy is unavailable.
   useEffect(() => {
-    if (!activeFriendParam || !token || !user?.id) return;
+    if (!activeFriendParam || !token || !user?.id || isSelfId(activeFriendParam)) return;
 
     let stopped = false;
     let reconnectTimer = null;
@@ -679,20 +1063,25 @@ export default function Chat({
             setCallError(payload.type === 'call-reject' ? 'The call was declined.' : 'The other person ended the call.');
             return;
           }
+          if (payload?.type === 'ack') {
+            const ackMsg = payload.message || {
+              clientMessageId: payload.clientMessageId,
+              status: 'sent',
+            };
+            handleIncomingOrAckMessage(ackMsg);
+            return;
+          }
           const message = payload?.message;
           if (payload?.type !== 'message' || !message) return;
-          if (![message.senderId, message.receiverId].includes(user.id)) return;
-          const activeId = activeFriend?.id;
-          const activePlayerId = activeFriend?.playerId;
+          if (![message.senderId, message.receiverId].includes(user?.id)) return;
+          const otherPartyId = message.senderId === user?.id ? message.receiverId : message.senderId;
           const isForActiveFriend = (
-            [message.senderId, message.receiverId].includes(activeId) ||
-            [message.senderId, message.receiverId].includes(activePlayerId)
+            activeFriendIdentifiers.has(String(otherPartyId)) ||
+            (activeFriendIdRef.current && String(otherPartyId) === String(activeFriendIdRef.current))
           );
           if (!isForActiveFriend) return;
 
-          setChatMessages((previous) => previous.some((item) => item.id === message.id)
-            ? previous
-            : [...previous, message]);
+          handleIncomingOrAckMessage(message);
         } catch (error) {
           console.warn('Could not process incoming chat message:', error);
         }
@@ -888,11 +1277,14 @@ export default function Chat({
     }
   };
 
-  // Send message
+  // Send message with instant optimistic UI update
   const handleSendMessage = async (e) => {
     e?.preventDefault();
     if (!inputVal.trim() || !activeFriend || !token) return;
-    if (!canMessageActiveFriend) {
+    const isHintMessage = QUICK_PROMPTS.some(
+      (p) => p.trim() === inputVal.trim() || inputVal.trim().includes(p.replace(/^[^\s]+\s/, ''))
+    );
+    if (!canMessageActiveFriend && !isHintMessage && !embedded && !activeOnlineMatch) {
       setSendError('Accept this player as a friend before sending messages.');
       return;
     }
@@ -900,22 +1292,117 @@ export default function Chat({
     const textToSend = inputVal.trim();
     setInputVal('');
     setSendError('');
-    setIsSendingMessage(true);
 
+    const friendParam = activeFriend.id || activeFriend.playerId;
+    const tempId = `c_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+    const canonicalReceiverId = canonicalFriendMapRef.current.get(String(friendParam))?.id ||
+      (activeFriend?.id && String(activeFriend.id).length === 36 ? activeFriend.id : friendParam);
+
+    const optimisticMsg = {
+      id: tempId,
+      clientMessageId: tempId,
+      senderId: user?.id,
+      receiverId: canonicalReceiverId,
+      senderUsername: user?.username || 'You',
+      text: textToSend,
+      message: textToSend,
+      createdAt: new Date().toISOString(),
+      timestamp: new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }).format(new Date()),
+      status: 'pending',
+    };
+
+    // 1. Instant optimistic update: display immediately
+    setChatMessages((prev) => [...prev, optimisticMsg]);
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 10);
+
+    // 2. Try WebSocket delivery first (lowest latency, real-time)
+    const socket = chatSocketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify({
+          type: 'message',
+          text: textToSend,
+          clientMessageId: tempId,
+        }));
+        return;
+      } catch (wsErr) {
+        console.warn('Socket send failed, falling back to HTTP:', wsErr);
+      }
+    }
+
+    // 3. Fallback: send via HTTP API
     try {
-      const friendParam = activeFriend.id || activeFriend.playerId;
-      const res = await api.sendChatMessage(token, friendParam, { text: textToSend });
+      const res = await api.sendChatMessage(token, friendParam, {
+        text: textToSend,
+        client_message_id: tempId,
+      });
       if (res?.success && res.message) {
-        setChatMessages((prev) => (
-          prev.some((message) => message.id === res.message.id)
-            ? prev
-            : [...prev, res.message]
-        ));
+        handleIncomingOrAckMessage({ ...res.message, clientMessageId: tempId });
       }
     } catch (err) {
-      setSendError(err.message || 'Failed to send message.');
-    } finally {
-      setIsSendingMessage(false);
+      setChatMessages((prev) =>
+        prev.map((m) =>
+          (m.clientMessageId === tempId || m.id === tempId)
+            ? { ...m, status: 'failed', errorMsg: err.message || 'Failed to send' }
+            : m
+        )
+      );
+    }
+  };
+
+  // Retry sending a previously failed message
+  const retrySendMessage = async (failedMsg) => {
+    if (!failedMsg || !activeFriend || !token) return;
+    const textToSend = failedMsg.text || failedMsg.message;
+    const tempId = failedMsg.clientMessageId || failedMsg.id;
+
+    // Reset status to pending
+    setChatMessages((prev) =>
+      prev.map((m) =>
+        (m.clientMessageId === tempId || m.id === tempId)
+          ? { ...m, status: 'pending', errorMsg: null }
+          : m
+      )
+    );
+
+    const friendParam = activeFriend.id || activeFriend.playerId;
+    const socket = chatSocketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify({
+          type: 'message',
+          text: textToSend,
+          clientMessageId: tempId,
+        }));
+        return;
+      } catch (wsErr) {
+        console.warn('Retry socket send failed, using HTTP:', wsErr);
+      }
+    }
+
+    try {
+      const res = await api.sendChatMessage(token, friendParam, {
+        text: textToSend,
+        client_message_id: tempId,
+      });
+      if (res?.success && res.message) {
+        handleIncomingOrAckMessage({ ...res.message, clientMessageId: tempId });
+      }
+    } catch (err) {
+      setChatMessages((prev) =>
+        prev.map((m) =>
+          (m.clientMessageId === tempId || m.id === tempId)
+            ? { ...m, status: 'failed', errorMsg: err.message || 'Failed to send' }
+            : m
+        )
+      );
     }
   };
 
@@ -951,12 +1438,19 @@ export default function Chat({
   };
 
   // Filter messages by search query
-  const visibleMessages = chatMessages.filter((msg) => {
-    if (!messageSearchQuery.trim()) return true;
-    const query = messageSearchQuery.toLowerCase();
-    const text = (msg.text || msg.message || '').toLowerCase();
-    return text.includes(query);
-  });
+  const visibleMessages = React.useMemo(() => {
+    return chatMessages.filter((msg) => {
+      if (!messageSearchQuery.trim()) return true;
+      const query = messageSearchQuery.toLowerCase();
+      const text = (msg.text || msg.message || '').toLowerCase();
+      return text.includes(query);
+    });
+  }, [chatMessages, messageSearchQuery]);
+
+  // Group messages with dynamic date separators
+  const groupedItems = React.useMemo(() => {
+    return groupMessagesWithSeparators(visibleMessages);
+  }, [visibleMessages]);
 
   // Filter friends list (includes active unlocked online opponent if any)
   const displayFriendsList = React.useMemo(() => {
@@ -992,6 +1486,17 @@ export default function Chat({
             </button>
           )}
 
+          {(!embedded && activeOnlineMatch && onNavigate) && (
+            <button
+              onClick={() => onNavigate('play')}
+              className="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Return to chessboard"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
+              <span>Return to Board</span>
+            </button>
+          )}
+
           {embedded && onCloseInPlace && (
             <button
               onClick={onCloseInPlace}
@@ -999,7 +1504,7 @@ export default function Chat({
               title="Return to chessboard"
             >
               <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
-              <span>Board</span>
+              <span>Return to Board</span>
             </button>
           )}
 
@@ -1151,13 +1656,6 @@ export default function Chat({
         backgroundImage: `radial-gradient(#202c33 0.75px, transparent 0.75px)`,
         backgroundSize: '16px 16px'
       }}>
-        {/* Day separator pill */}
-        <div className="flex justify-center my-2">
-          <span className="px-3 py-1 rounded-lg bg-[#182229] border border-[#222d34] text-[11px] text-[#8696a0] shadow-sm font-medium uppercase tracking-wider">
-            Today
-          </span>
-        </div>
-
         {/* Tactical Unlock Announcement Banner */}
         {chatStatus.isUnlocked ? (
           <div className="max-w-md mx-auto p-3 rounded-xl bg-[#182229] border border-amber-400/40 text-xs text-amber-300 text-center space-y-1 shadow-md">
@@ -1199,40 +1697,94 @@ export default function Chat({
           </div>
         )}
 
-        {/* Message Bubbles (WhatsApp Style) */}
-        {visibleMessages.length > 0 ? (
-          visibleMessages.map((msg) => {
+        {/* Load older messages button */}
+        {hasMoreOlder && (
+          <div className="flex justify-center my-2">
+            <button
+              onClick={loadOlderMessages}
+              disabled={isLoadingOlder}
+              className="px-3 py-1 text-xs text-amber-300 hover:text-amber-200 bg-[#182229] hover:bg-[#202c33] border border-[#2a3942] rounded-full flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+            >
+              {isLoadingOlder && <Loader2 className="w-3 h-3 animate-spin" />}
+              <span>{isLoadingOlder ? 'Loading older messages...' : 'Load older messages'}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Loading skeleton / indicator */}
+        {isLoadingChat && chatMessages.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-12 text-[#8696a0] gap-2">
+            <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
+            <p className="text-xs">Loading messages...</p>
+          </div>
+        )}
+
+        {/* Message Bubbles & Date Separators */}
+        {groupedItems.length > 0 ? (
+          groupedItems.map((item) => {
+            if (item.type === 'date_separator') {
+              return (
+                <div key={item.id} className="flex justify-center my-3 select-none">
+                  <span className="px-3 py-1 rounded-lg bg-[#182229] border border-[#222d34] text-[11px] text-[#8696a0] shadow-sm font-semibold tracking-wider">
+                    {item.label}
+                  </span>
+                </div>
+              );
+            }
+
+            const msg = item.data;
             const isMe = msg.senderId === user?.id;
+            const isPending = msg.status === 'pending';
+            const isFailed = msg.status === 'failed';
 
             return (
               <div
-                key={msg.id}
+                key={item.id}
                 className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} my-1`}
               >
                 <div
                   className={`max-w-[80%] sm:max-w-[65%] px-3.5 py-2 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-md relative ${
                     isMe
-                      ? 'bg-amber-700 text-[#e9edef] rounded-tr-none'
+                      ? isFailed
+                        ? 'bg-rose-950/70 border border-rose-600/50 text-[#e9edef] rounded-tr-none'
+                        : 'bg-amber-700 text-[#e9edef] rounded-tr-none'
                       : 'bg-[#202c33] text-[#e9edef] rounded-tl-none border border-[#2a3942]/50'
                   }`}
                 >
-                  <p className={`break-words select-text ${(msg.text || msg.message || '').startsWith('📞') ? 'font-semibold text-amber-100' : ''}`}>{msg.text || msg.message}</p>
+                  <p className={`break-words select-text ${(msg.text || msg.message || '').startsWith('📞') ? 'font-semibold text-amber-100' : ''}`}>
+                    {msg.text || msg.message}
+                  </p>
                   
-                  <div className="flex items-center justify-end gap-1 mt-1 text-[10px] text-[#8696a0] select-none">
+                  <div className="flex items-center justify-end gap-1.5 mt-1 text-[10px] text-[#8696a0] select-none">
                     <span>{formatMessageTime(msg)}</span>
                     {isMe && (
-                      <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" />
+                      isPending ? (
+                        <Clock className="w-3 h-3 text-amber-300/80 animate-pulse" title="Sending..." />
+                      ) : isFailed ? (
+                        <button
+                          type="button"
+                          onClick={() => retrySendMessage(msg)}
+                          className="flex items-center gap-1 text-rose-300 hover:text-white font-bold ml-1 cursor-pointer"
+                          title="Click to retry sending"
+                        >
+                          <AlertCircle className="w-3 h-3 text-rose-400" />
+                          <span>Failed · Retry</span>
+                          <RotateCcw className="w-2.5 h-2.5" />
+                        </button>
+                      ) : (
+                        <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" title="Delivered" />
+                      )
                     )}
                   </div>
                 </div>
               </div>
             );
           })
-        ) : (
+        ) : !isLoadingChat ? (
           <p className="text-center text-xs text-[#8696a0] py-10 italic">
             {messageSearchQuery ? 'No messages matching search query.' : `No messages exchanged yet with ${activeFriend?.username || activeFriend?.name || 'this friend'}.`}
           </p>
-        )}
+        ) : null}
         <div ref={messagesEndRef} />
       </div>
 
@@ -1241,9 +1793,9 @@ export default function Chat({
         {QUICK_PROMPTS.map((prompt, idx) => (
           <button
             key={idx}
-            disabled={!canMessageActiveFriend}
+            type="button"
             onClick={() => setInputVal(prompt)}
-            className="px-2.5 py-1 rounded-lg bg-[#202c33] hover:bg-[#2a3942] disabled:opacity-30 text-[#aebac1] text-[11px] whitespace-nowrap transition-colors cursor-pointer border border-[#2a3942]/50 shrink-0"
+            className="px-2.5 py-1 rounded-lg bg-[#202c33] hover:bg-[#2a3942] hover:border-amber-400 text-amber-300 font-medium text-[11px] whitespace-nowrap transition-colors cursor-pointer border border-[#2a3942]/70 shrink-0 shadow-sm"
           >
             {prompt}
           </button>
@@ -1295,20 +1847,20 @@ export default function Chat({
 
           <input
             type="text"
-            disabled={!canMessageActiveFriend || isSendingMessage}
+            disabled={!canMessageActiveFriend && !isHintSelected}
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
             placeholder={
               canMessageActiveFriend
                 ? 'Type a message...'
-                : '🔒 Chat is locked. Capture piece within 5 moves or extend for ₹5.'
+                : 'Select a hint option above, or capture piece within 5 moves to unlock free chat.'
             }
             className="flex-1 bg-[#2a3942] border border-transparent focus:border-amber-400 disabled:opacity-50 text-xs sm:text-sm text-[#e9edef] placeholder-[#8696a0] px-4 py-2.5 rounded-xl outline-none transition-colors"
           />
 
           <button
             type="submit"
-            disabled={!canMessageActiveFriend || !inputVal.trim() || isSendingMessage}
+            disabled={!canSendMessage || !inputVal.trim()}
             className="w-10 h-10 rounded-full bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black flex items-center justify-center transition-all cursor-pointer shadow-md shrink-0"
             title="Send"
           >

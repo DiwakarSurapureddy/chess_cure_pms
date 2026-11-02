@@ -1012,62 +1012,44 @@ export const api = {
 
    */
 
-  async getChatMessages(token, friendId) {
+  async getChatMessages(token, friendId, { limit = 50, before = null } = {}) {
+    if (!token) return { success: false, messages: [], hasMore: false };
+    const queryParams = new URLSearchParams();
+    if (limit) queryParams.append('limit', limit);
+    if (before) queryParams.append('before', before);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
 
-    if (!token) return { success: false, messages: [] };
-
-    const res = await fetch(`${BASE_URL}/chat/messages/${encodeURIComponent(friendId)}`, {
-
+    const res = await fetch(`${BASE_URL}/chat/messages/${encodeURIComponent(friendId)}${queryString}`, {
       method: 'GET',
-
       headers: { 'Authorization': `Bearer ${token}` }
-
     });
-
-    const data = await res.json().catch(() => ({ success: false, messages: [] }));
-
+    const data = await res.json().catch(() => ({ success: false, messages: [], hasMore: false }));
     return data;
-
   },
 
-
-
   /**
-
    * Send a chat message to an accepted friend
-
    */
-
-  async sendChatMessage(token, friendId, { text, game_id = null }) {
-
+  async sendChatMessage(token, friendId, { text, game_id = null, client_message_id = null }) {
     if (!token) throw new Error('Authentication required to send messages.');
-
     const res = await fetch(`${BASE_URL}/chat/messages/${encodeURIComponent(friendId)}`, {
-
       method: 'POST',
-
       headers: {
-
         'Content-Type': 'application/json',
-
         'Authorization': `Bearer ${token}`
-
       },
-
-      body: JSON.stringify({ text, game_id }),
-
+      body: JSON.stringify({
+        text,
+        game_id,
+        client_message_id,
+        clientMessageId: client_message_id
+      }),
     });
-
     const data = await res.json().catch(() => ({}));
-
     if (!res.ok) {
-
       throw new Error(data.detail || data.error || 'Failed to send message.');
-
     }
-
     return data;
-
   },
 
 
@@ -1292,6 +1274,23 @@ export const api = {
 
     }
 
+  },
+
+  /**
+   * Fetch game state by gameId
+   */
+  async getGame(gameId) {
+    if (!gameId) return null;
+    try {
+      const res = await fetch(`${BASE_URL}/games/${encodeURIComponent(gameId)}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return await res.json().catch(() => null);
+    } catch (e) {
+      console.warn('getGame error:', e);
+      return null;
+    }
   },
 
 };

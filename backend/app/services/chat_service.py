@@ -2,13 +2,14 @@
 
 from datetime import datetime, timezone, timedelta
 
-from typing import List, Optional
+
 
 from fastapi import HTTPException, status
 
-from sqlalchemy import and_, asc, or_
+from sqlalchemy import and_, asc, desc, or_
+from typing import List, Optional, Tuple, Union
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.chat import ChatMessage, ChatUnlockSession
 
@@ -263,46 +264,66 @@ class ChatService:
         return session
 
     def get_messages(
-
         self,
-
         db: Session,
-
         user1_id: str,
-
         user2_id: str,
-
-        limit: int = 100,
-
-    ) -> List[ChatMessage]:
-
-        return db.query(ChatMessage).filter(
-
+        limit: int = 50,
+        before: Optional[str] = None,
+        return_has_more: bool = False,
+    ) -> Union[List[ChatMessage], Tuple[List[ChatMessage], bool]]:
+        query = db.query(ChatMessage).options(joinedload(ChatMessage.sender)).filter(
             or_(
-
                 and_(
-
                     ChatMessage.sender_id == user1_id,
-
                     ChatMessage.receiver_id == user2_id,
-
                 ),
-
                 and_(
-
                     ChatMessage.sender_id == user2_id,
-
                     ChatMessage.receiver_id == user1_id,
-
                 ),
-
             )
+        )
 
-        ).order_by(
+        if before:
+            before_dt = None
+            raw_val = str(before).strip()
+            if raw_val:
+                # 1. Check if raw_val is an existing message ID first
+                msg_row = db.query(ChatMessage.created_at).filter(ChatMessage.id == raw_val).first()
+                if msg_row:
+                    before_dt = msg_row[0]
+                else:
+                    # 2. Parse ISO timestamp, repairing any URL-decoded space instead of '+'
+                    clean_iso = raw_val.replace(" ", "+")
+                    if clean_iso.endswith("Z"):
+                        clean_iso = clean_iso[:-1] + "+00:00"
+                    try:
+                        parsed = datetime.fromisoformat(clean_iso)
+                        if parsed.tzinfo is not None:
+                            before_dt = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                        else:
+                            before_dt = parsed
+                    except Exception:
+                        before_dt = None
 
-            asc(ChatMessage.created_at)
+            if before_dt:
+                query = query.filter(ChatMessage.created_at < before_dt)
 
-        ).limit(limit).all()
+        fetch_count = limit + 1 if return_has_more else limit
+        rows = query.order_by(desc(ChatMessage.created_at)).limit(fetch_count).all()
+
+        has_more = False
+        if return_has_more:
+            if len(rows) > limit:
+                has_more = True
+                rows = rows[:limit]
+
+        rows.reverse()
+
+        if return_has_more:
+            return rows, has_more
+        return rows
 
     def send_message(
         self,
@@ -311,66 +332,59 @@ class ChatService:
         receiver_id: str,
         text: str,
         game_id: Optional[str] = None,
+        client_message_id: Optional[str] = None,
+        can_chat_verified: bool = False,
+        session: Optional[ChatUnlockSession] = None,
     ) -> ChatMessage:
-        has_active_unlock = False
-        try:
-            session = self.get_or_create_unlock_session(db, sender_id, receiver_id)
-            has_active_unlock = bool(session.is_unlocked and session.get_remaining_seconds() > 0)
-        except Exception:
-            pass
+        if not can_chat_verified:
+            has_active_unlock = False
+            try:
+                if session is None:
+                    session = self.get_or_create_unlock_session(db, sender_id, receiver_id)
+                has_active_unlock = bool(session.is_unlocked and session.get_remaining_seconds() > 0)
+            except Exception:
+                pass
 
-        is_active_match = False
-        try:
-            from app.models.friend import MatchChallenge
-            from sqlalchemy import or_
-            active_challenge = db.query(MatchChallenge).filter(
-                or_(
-                    (MatchChallenge.sender_id == sender_id) & (MatchChallenge.receiver_id == receiver_id),
-                    (MatchChallenge.sender_id == receiver_id) & (MatchChallenge.receiver_id == sender_id),
-                ),
-                MatchChallenge.status.in_(["pending", "accepted"]),
-            ).first()
-            if active_challenge:
-                is_active_match = True
-        except Exception:
-            pass
+            is_active_match = False
+            try:
+                from app.models.friend import MatchChallenge
+                from sqlalchemy import or_
+                active_challenge = db.query(MatchChallenge).filter(
+                    or_(
+                        (MatchChallenge.sender_id == sender_id) & (MatchChallenge.receiver_id == receiver_id),
+                        (MatchChallenge.sender_id == receiver_id) & (MatchChallenge.receiver_id == sender_id),
+                    ),
+                    MatchChallenge.status.in_(["pending", "accepted"]),
+                ).first()
+                if active_challenge:
+                    is_active_match = True
+            except Exception:
+                pass
 
-        if not (self.is_friend(db, sender_id, receiver_id) or has_active_unlock or is_active_match):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Messaging allowed only between accepted friends.",
-            )
+            if not (self.is_friend(db, sender_id, receiver_id) or has_active_unlock or is_active_match):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Messaging allowed only between accepted friends.",
+                )
 
         clean_text = text.strip()
-
         if not clean_text:
-
             raise HTTPException(
-
                 status_code=status.HTTP_400_BAD_REQUEST,
-
                 detail="Message cannot be empty.",
-
             )
 
         message = ChatMessage(
-
             sender_id=sender_id,
-
             receiver_id=receiver_id,
-
             game_id=game_id,
-
             text=clean_text,
-
+            client_message_id=client_message_id,
         )
 
         db.add(message)
-
         db.commit()
-
         db.refresh(message)
-
         return message
 
 chat_service = ChatService()

@@ -145,6 +145,8 @@ export default function Profile({ onNavigate }) {
               
               setActiveOnlineMatch({
                 gameId: res.gameId,
+                opponentId: player.id || player.playerId,
+                opponentPlayerId: player.playerId || player.id,
                 player1: user?.username || 'Player 1',
                 player2: player.username || player.name,
                 playerColor: 'w', // Challenger plays White

@@ -136,8 +136,8 @@ async def chat_websocket(websocket: WebSocket, friend_id: str):
         except Exception:
             pass
 
-        if not check_can_chat(db, current_user.id, target_friend.id, session=session):
-            await websocket.close(code=1008, reason="Accepted friendship or active match required")
+        if not check_can_read_chat(db, current_user.id, target_friend.id, session=session):
+            await websocket.close(code=1008, reason="Participant authorization required")
             return
 
 
@@ -167,6 +167,50 @@ async def chat_websocket(websocket: WebSocket, friend_id: str):
             if payload.get("type") == "ping":
 
                 await websocket.send_json({"type": "pong"})
+
+            elif payload.get("type") == "message":
+                msg_text = str(payload.get("text", "")).strip()
+                if msg_text:
+                    cid = payload.get("clientMessageId") or payload.get("client_message_id")
+                    game_id = payload.get("game_id")
+                    msg_db = SessionLocal()
+                    try:
+                        ws_session = chat_service.get_or_create_unlock_session(
+                            msg_db, current_user.id, target_friend.id
+                        )
+                        if not check_can_chat(msg_db, current_user.id, target_friend.id, session=ws_session):
+                            await websocket.send_json({"type": "error", "message": "Messaging not allowed."})
+                        else:
+                            saved_msg = chat_service.send_message(
+                                db=msg_db,
+                                sender_id=current_user.id,
+                                receiver_id=target_friend.id,
+                                text=msg_text,
+                                game_id=game_id,
+                                client_message_id=cid,
+                                can_chat_verified=True,
+                                session=ws_session,
+                            )
+                            msg_dict = saved_msg.to_dict()
+                            if cid and not msg_dict.get("clientMessageId"):
+                                msg_dict["clientMessageId"] = cid
+                            await chat_connection_manager.publish(
+                                room,
+                                {"type": "message", "message": msg_dict},
+                            )
+                            await websocket.send_json({
+                                "type": "ack",
+                                "clientMessageId": cid,
+                                "message": msg_dict,
+                            })
+                    except Exception as ex:
+                        await websocket.send_json({
+                            "type": "error",
+                            "clientMessageId": cid,
+                            "message": str(ex),
+                        })
+                    finally:
+                        msg_db.close()
 
             elif payload.get("type") in {
 
@@ -261,6 +305,10 @@ class SendMessageRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000)
 
     game_id: Optional[str] = None
+
+    client_message_id: Optional[str] = None
+
+    clientMessageId: Optional[str] = None
 
 
 
@@ -429,11 +477,10 @@ def validate_game_unlock(
 
 
 def check_can_chat(db: Session, user1_id: str, user2_id: str, session: Optional[ChatUnlockSession] = None) -> bool:
+    """Historical message SEND authorization: requires accepted friendship, active unlock session, or active match."""
     if chat_service.is_friend(db, user1_id, user2_id):
         return True
     if session and session.is_unlocked and session.get_remaining_seconds() > 0:
-        return True
-    if session and (getattr(session, "unlock_count", 0) > 0 or session.is_unlocked):
         return True
     try:
         active_challenge = db.query(MatchChallenge).filter(
@@ -470,6 +517,13 @@ def check_can_chat(db: Session, user1_id: str, user2_id: str, session: Optional[
                 return True
     except Exception:
         pass
+    return False
+
+
+def check_can_read_chat(db: Session, user1_id: str, user2_id: str, session: Optional[ChatUnlockSession] = None) -> bool:
+    """Historical message READ authorization: only authenticated conversation participants may read their existing history."""
+    if check_can_chat(db, user1_id, user2_id, session=session):
+        return True
     try:
         has_msg = db.query(ChatMessage.id).filter(
             or_(
@@ -499,12 +553,15 @@ def get_chat_status(
         db, current_user.id, target_friend.id, game_id=game_id
     )
     remaining = session.get_remaining_seconds()
-    can_chat = check_can_chat(db, current_user.id, target_friend.id, session=session)
+    can_send = check_can_chat(db, current_user.id, target_friend.id, session=session)
+    can_read = check_can_read_chat(db, current_user.id, target_friend.id, session=session)
 
-    if not can_chat:
+    if not can_read:
         return {
             "success": True,
             "isFriend": False,
+            "canChat": False,
+            "canRead": False,
             "isUnlocked": False,
             "timeRemainingSeconds": 0,
             "message": "You must be accepted friends to chat.",
@@ -513,7 +570,9 @@ def get_chat_status(
 
     return {
         "success": True,
-        "isFriend": is_friend or can_chat,
+        "isFriend": is_friend or can_send,
+        "canChat": can_send,
+        "canRead": True,
         "isUnlocked": bool(session.is_unlocked and remaining > 0),
         "timeRemainingSeconds": remaining,
         "expiresAt": _to_utc_iso(session.expires_at) if session.expires_at else None,
@@ -531,6 +590,8 @@ def get_chat_status(
 @router.get("/messages/{friend_id}")
 def get_chat_messages(
     friend_id: str,
+    limit: int = 50,
+    before: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -540,48 +601,50 @@ def get_chat_messages(
     session = chat_service.get_or_create_unlock_session(
         db, current_user.id, target_friend.id
     )
-    if not check_can_chat(db, current_user.id, target_friend.id, session=session):
+    can_read = check_can_read_chat(db, current_user.id, target_friend.id, session=session)
+    if not can_read:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Messaging allowed only between accepted friends.",
         )
 
+    can_send = check_can_chat(db, current_user.id, target_friend.id, session=session)
+    is_friend = chat_service.is_friend(db, current_user.id, target_friend.id)
     remaining = session.get_remaining_seconds()
-    messages = chat_service.get_messages(
-        db, current_user.id, target_friend.id
+    messages, has_more = chat_service.get_messages(
+        db, current_user.id, target_friend.id, limit=limit, before=before, return_has_more=True
     )
 
     return {
         "success": True,
+        "isFriend": is_friend or can_send,
+        "canChat": can_send,
+        "canRead": True,
         "isUnlocked": bool(session.is_unlocked and remaining > 0),
         "timeRemainingSeconds": remaining,
         "expiresAt": _to_utc_iso(session.expires_at) if session and session.expires_at else None,
+        "unlockedAt": _to_utc_iso(session.unlocked_at) if session and session.unlocked_at else None,
+        "unlockReason": session.unlock_reason if session else None,
+        "paymentStatus": session.payment_status if session else None,
+        "extendedCount": session.extended_count if session else 0,
+        "unlockCount": session.unlock_count if session else 0,
+        "priceInr": 10,
+        "gameId": session.game_id if session else None,
+        "friend": target_friend.to_dict(),
         "messages": [message.to_dict() for message in messages],
+        "hasMore": has_more,
     }
 
 
-
-
-
 @router.post("/messages/{friend_id}")
-
 async def send_chat_message(
-
     friend_id: str,
-
     payload: SendMessageRequest,
-
     current_user: User = Depends(get_current_user),
-
     db: Session = Depends(get_db),
-
 ):
-
     target_friend = resolve_friend_user(db, friend_id)
-
     reject_self_chat(current_user, target_friend, "start a chat")
-
-
 
     session = chat_service.get_or_create_unlock_session(
         db, current_user.id, target_friend.id
@@ -592,50 +655,31 @@ async def send_chat_message(
             detail="Messaging allowed only between accepted friends.",
         )
 
-
-
+    cid = payload.client_message_id or payload.clientMessageId
     message = chat_service.send_message(
-
         db=db,
-
         sender_id=current_user.id,
-
         receiver_id=target_friend.id,
-
         text=payload.text.strip(),
-
         game_id=payload.game_id,
-
+        client_message_id=cid,
+        can_chat_verified=True,
+        session=session,
     )
 
-
+    msg_dict = message.to_dict()
+    if cid and not msg_dict.get("clientMessageId"):
+        msg_dict["clientMessageId"] = cid
 
     await chat_connection_manager.publish(
-
         chat_room_key(current_user.id, target_friend.id),
-
-        {"type": "message", "message": message.to_dict()},
-
+        {"type": "message", "message": msg_dict},
     )
-
-
-
-    updated_session = chat_service.get_or_create_unlock_session(
-
-        db, current_user.id, target_friend.id
-
-    )
-
-
 
     return {
-
         "success": True,
-
-        "message": message.to_dict(),
-
-        "timeRemainingSeconds": updated_session.get_remaining_seconds(),
-
+        "message": msg_dict,
+        "timeRemainingSeconds": session.get_remaining_seconds(),
     }
 
 

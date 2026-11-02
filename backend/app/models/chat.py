@@ -13,6 +13,7 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    client_message_id = Column(String(64), nullable=True, index=True)
     sender_id = Column(String(36), ForeignKey("users.id"), index=True, nullable=False)
     receiver_id = Column(String(36), ForeignKey("users.id"), index=True, nullable=False)
     game_id = Column(String(50), nullable=True)
@@ -20,6 +21,7 @@ class ChatMessage(Base):
     created_at = Column(
         DateTime,
         default=lambda: datetime.now(timezone.utc),
+        index=True,
     )
 
     # Relationships
@@ -38,6 +40,7 @@ class ChatMessage(Base):
 
         return {
             "id": self.id,
+            "clientMessageId": self.client_message_id,
             "senderId": self.sender_id,
             "receiverId": self.receiver_id,
             "senderUsername": (
@@ -47,7 +50,7 @@ class ChatMessage(Base):
             "text": self.text,
             "message": self.text,
             "createdAt": (
-                created_at_utc.isoformat(timespec="milliseconds")
+                created_at_utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
                 if created_at_utc else None
             ),
             "timestamp": (

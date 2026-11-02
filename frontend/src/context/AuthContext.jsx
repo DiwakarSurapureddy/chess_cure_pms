@@ -7,6 +7,7 @@ const TOKEN_KEY = 'cc_auth_token';
 const USER_KEY = 'chess_cure_user';
 const CAREER_KEY = 'chess_cure_career';
 const PREFERENCES_KEY = 'chess_cure_preferences';
+const ACTIVE_ONLINE_MATCH_KEY = 'cc_active_online_match';
 
 const FACEBOOK_APP_ID = '1608757584075667';
 
@@ -234,7 +235,114 @@ export function AuthProvider({ children }) {
     return res;
   };
 
-  const [activeOnlineMatch, setActiveOnlineMatch] = useState(null);
+  const [activeOnlineMatch, setActiveOnlineMatchState] = useState(() => {
+    try {
+      const savedUser = localStorage.getItem('cc_auth_user') || localStorage.getItem(USER_KEY);
+      const parsedUser = savedUser ? JSON.parse(savedUser) : null;
+      const scopedKey = parsedUser?.id ? `${ACTIVE_ONLINE_MATCH_KEY}_${parsedUser.id}` : null;
+      const saved = (scopedKey ? localStorage.getItem(scopedKey) : null) || localStorage.getItem(ACTIVE_ONLINE_MATCH_KEY);
+      if (!saved) return null;
+      const parsed = JSON.parse(saved);
+      // Guard: do not initialize if opponent is self
+      if (parsedUser && (parsed.opponentId === parsedUser.id || parsed.opponentPlayerId === parsedUser.playerId || parsed.opponentName === parsedUser.username)) {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  });
+
+  const setActiveOnlineMatch = React.useCallback((matchOrUpdater) => {
+    setActiveOnlineMatchState((prev) => {
+      const next = typeof matchOrUpdater === 'function' ? matchOrUpdater(prev) : matchOrUpdater;
+      try {
+        const curUserRaw = localStorage.getItem('cc_auth_user') || localStorage.getItem(USER_KEY);
+        const curUser = curUserRaw ? JSON.parse(curUserRaw) : null;
+        const scopedKey = curUser?.id ? `${ACTIVE_ONLINE_MATCH_KEY}_${curUser.id}` : null;
+        if (next) {
+          if (scopedKey) localStorage.setItem(scopedKey, JSON.stringify(next));
+          localStorage.setItem(ACTIVE_ONLINE_MATCH_KEY, JSON.stringify(next));
+        } else {
+          if (scopedKey) localStorage.removeItem(scopedKey);
+          localStorage.removeItem(ACTIVE_ONLINE_MATCH_KEY);
+        }
+      } catch (e) {
+        console.warn('Failed to persist activeOnlineMatch:', e);
+      }
+      return next;
+    });
+  }, []);
+
+  // On mount/refresh, verify authoritative server state of saved match
+  useEffect(() => {
+    let isCancelled = false;
+    const verifySavedMatch = async () => {
+      const curUser = user || (() => {
+        try {
+          const raw = localStorage.getItem('cc_auth_user') || localStorage.getItem(USER_KEY);
+          return raw ? JSON.parse(raw) : null;
+        } catch { return null; }
+      })();
+      const scopedKey = curUser?.id ? `${ACTIVE_ONLINE_MATCH_KEY}_${curUser.id}` : null;
+      const savedRaw = (scopedKey ? localStorage.getItem(scopedKey) : null) || localStorage.getItem(ACTIVE_ONLINE_MATCH_KEY);
+      if (!savedRaw) return;
+      let savedMatch = null;
+      try {
+        savedMatch = JSON.parse(savedRaw);
+      } catch {
+        savedMatch = null;
+      }
+      if (!savedMatch?.gameId) return;
+
+      try {
+        const res = await api.getGame(savedMatch.gameId);
+        if (isCancelled) return;
+        const game = res?.game;
+        const isCompleted = !game ||
+          game.status === 'completed' ||
+          game.status === 'cancelled' ||
+          game.is_game_over ||
+          Boolean(game.winner) ||
+          Boolean(game.result);
+
+        if (isCompleted) {
+          console.info('Saved online match is completed or cancelled, clearing:', savedMatch.gameId);
+          setActiveOnlineMatch(null);
+        } else if (game) {
+          // Sync with authoritative server board state and perspective
+          setActiveOnlineMatch((current) => {
+            if (!current || current.gameId !== savedMatch.gameId) return current;
+            let playerColor = current.playerColor;
+            let opponentName = current.opponentName;
+            if (curUser) {
+              if (curUser.username === game.player1) {
+                playerColor = 'w';
+                opponentName = game.player2;
+              } else if (curUser.username === game.player2) {
+                playerColor = 'b';
+                opponentName = game.player1;
+              }
+            }
+            return {
+              ...current,
+              fen: game.fen || current.fen,
+              moves: game.moves || current.moves,
+              turn: game.turn || current.turn,
+              playerColor: playerColor || current.playerColor,
+              opponentName: opponentName || current.opponentName,
+            };
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to verify saved match with server:', err);
+      }
+    };
+    verifySavedMatch();
+    return () => {
+      isCancelled = true;
+    };
+  }, [setActiveOnlineMatch]);
 
   const sendMatchChallenge = async (targetPlayerId) => {
     const curToken = token || localStorage.getItem(TOKEN_KEY);
@@ -596,6 +704,17 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem('cc_auth_user');
     localStorage.removeItem(CAREER_KEY);
+    localStorage.removeItem(ACTIVE_ONLINE_MATCH_KEY);
+    localStorage.removeItem('cc_selected_chat_opponent');
+    localStorage.removeItem('cc_last_selected_friend');
+    if (user?.id) {
+      localStorage.removeItem(`cc_selected_chat_opponent_${user.id}`);
+      localStorage.removeItem(`cc_last_selected_friend_${user.id}`);
+      localStorage.removeItem(`${ACTIVE_ONLINE_MATCH_KEY}_${user.id}`);
+    }
+    try {
+      window.dispatchEvent(new Event('chess_cure_chat_logout'));
+    } catch {}
     setUser(null);
     setToken(null);
     setCareerGames([]);
